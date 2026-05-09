@@ -315,7 +315,7 @@ function Metric({ icon, label, value }: { icon: React.ReactElement; label: strin
   return (
     <div className="rounded-3xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur-xl">
       <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-400/10 text-amber-300">
-        {React.cloneElement(icon, { className: "h-5 w-5" })}
+       {icon}
       </div>
       <div className="text-2xl font-bold">{value}</div>
       <div className="text-sm text-zinc-500">{label}</div>
@@ -326,7 +326,7 @@ function Metric({ icon, label, value }: { icon: React.ReactElement; label: strin
 function InfoLine({ icon, label, value }: { icon: React.ReactElement; label: string; value: string }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-black/20 p-3">
-      <div className="text-amber-300">{React.cloneElement(icon, { className: "h-4 w-4" })}</div>
+      <div className="text-amber-300">{icon}</div>
       <div>
         <div className="text-xs text-zinc-500">{label}</div>
         <div className="font-medium text-zinc-100">{value}</div>
