@@ -220,27 +220,9 @@ function distanceFeet(lat1: number, lon1: number, lat2: number, lon2: number) {
 
 export default function LuxonOpsDashboard() {
   const [activeTab, setActiveTab] = useState("dashboard");
- const { data: contractorData, error: contractorError } = await supabase
-  .from("contractors")
-  .select("*");
-
-const { data: eventData, error: eventError } = await supabase
-  .from("events")
-  .select("*");
-
-const { data: assignmentData, error: assignmentError } = await supabase
-  .from("assignments")
-  .select("*");
-  .from("contractors")
-  .select("*");
-
-const { data: eventData, error: eventError } = await supabase
-  .from("events")
-  .select("*");
-
-const { data: assignmentData, error: assignmentError } = await supabase
-  .from("assignments")
-  .select("*");
+  const [search, setSearch] = useState("");
+  const [contractors, setContractors] = useState<Contractor[]>([]);
+  const [events, setEvents] = useState<EventItem[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number>(0);
   const [selectedInvoiceContractorId, setSelectedInvoiceContractorId] = useState<number>(0);
@@ -260,9 +242,17 @@ const { data: assignmentData, error: assignmentError } = await supabase
   async function loadData() {
     setLoading(true);
 
-    const { data: contractorData, error: contractorError } = await supabase.from("contractors").select("*").order("name");
-    const { data: eventData, error: eventError } = await supabase.from("events").select("*").order("start_date", { ascending: false });
-    const { data: assignmentData, error: assignmentError } = await supabase.from("assignments").select("*").order("work_date", { ascending: true });
+    const { data: contractorData, error: contractorError } = await supabase
+      .from("contractors")
+      .select("*");
+
+    const { data: eventData, error: eventError } = await supabase
+      .from("events")
+      .select("*");
+
+    const { data: assignmentData, error: assignmentError } = await supabase
+      .from("assignments")
+      .select("*");
 
     if (contractorError || eventError || assignmentError) {
       console.error({ contractorError, eventError, assignmentError });
