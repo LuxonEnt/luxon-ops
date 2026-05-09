@@ -8,21 +8,13 @@
     "start": "next start",
     "lint": "next lint"
   },
-"dependencies": {
-  "@supabase/supabase-js": "^2.49.8",
-  "next": "16.2.6",
-  "react": "19.0.0",
-  "react-dom": "19.0.0"
-}
-  "@supabase/supabase-js": "^2.49.8",
-  "next": "16.2.6"
-}
+  "dependencies": {
     "@supabase/auth-helpers-nextjs": "latest",
-    "@supabase/supabase-js": "latest",
+    "@supabase/supabase-js": "^2.49.8",
     "lucide-react": "latest",
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "next": "16.2.6",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
   },
   "devDependencies": {
     "@types/node": "latest",
@@ -32,7 +24,7 @@
     "eslint": "latest",
     "eslint-config-next": "latest",
     "postcss": "latest",
-   "tailwindcss": "3.4.17",
+    "tailwindcss": "3.4.17",
     "typescript": "latest"
   }
 }
