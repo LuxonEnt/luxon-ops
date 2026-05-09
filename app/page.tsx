@@ -176,7 +176,7 @@ export default function LuxonOpsDashboard() {
   const [geoMessage, setGeoMessage] = useState("");
   const [newContractor, setNewContractor] = useState({ name: "", role: "", phone: "", email: "", rate: "", rateType: "day" as "day" | "hour" });
   const [newEvent, setNewEvent] = useState({ name: "", client: "", venue: "", address: "", latitude: "", longitude: "", geofenceRadiusFeet: "750", startDate: "", endDate: "", notes: "" });
-  const [newAssignment, setNewAssignment] = useState({ eventId: 101, contractorId: 1, position: "", workDate: "", callTime: "09:00", rate: "", rateType: "day" as "day" | "hour" });
+  const [newAssignment, setNewAssignment] = useState({ eventId: 101, contractorId: 1, position: "", workDate: "", workDates: "", callTime: "09:00", rate: "", rateType: "day" as "day" | "hour" });
 
   const contractorMap = useMemo(() => Object.fromEntries(contractors.map((c) => [c.id, c])), [contractors]);
   const eventMap = useMemo(() => Object.fromEntries(events.map((e) => [e.id, e])), [events]);
@@ -234,8 +234,41 @@ export default function LuxonOpsDashboard() {
 
   function addAssignment() {
     if (!newAssignment.position.trim()) return;
-    setAssignments((prev) => [...prev, { id: Date.now(), eventId: Number(newAssignment.eventId), contractorId: Number(newAssignment.contractorId), position: newAssignment.position, workDate: newAssignment.workDate, callTime: newAssignment.callTime, clockIn: "", clockOut: "", clockInLocation: "", clockOutLocation: "", breakHours: 1, rate: Number(newAssignment.rate || 0), rateType: newAssignment.rateType, confirmed: false, approved: false, paid: false }]);
-    setNewAssignment({ eventId: events[0]?.id || 0, contractorId: contractors[0]?.id || 0, position: "", workDate: "", callTime: "09:00", rate: "", rateType: "day" });
+
+    const datesFromMultiField = newAssignment.workDates
+      .split(/[,
+]/)
+      .map((date) => date.trim())
+      .filter(Boolean);
+
+    const datesToSchedule = datesFromMultiField.length > 0 ? datesFromMultiField : newAssignment.workDate ? [newAssignment.workDate] : [];
+
+    if (datesToSchedule.length === 0) {
+      window.alert("Please add at least one work date.");
+      return;
+    }
+
+    const createdAssignments = datesToSchedule.map((date, index) => ({
+      id: Date.now() + index,
+      eventId: Number(newAssignment.eventId),
+      contractorId: Number(newAssignment.contractorId),
+      position: newAssignment.position,
+      workDate: date,
+      callTime: newAssignment.callTime,
+      clockIn: "",
+      clockOut: "",
+      clockInLocation: "",
+      clockOutLocation: "",
+      breakHours: 1,
+      rate: Number(newAssignment.rate || 0),
+      rateType: newAssignment.rateType,
+      confirmed: false,
+      approved: false,
+      paid: false,
+    }));
+
+    setAssignments((prev) => [...prev, ...createdAssignments]);
+    setNewAssignment({ eventId: events[0]?.id || 0, contractorId: contractors[0]?.id || 0, position: "", workDate: "", workDates: "", callTime: "09:00", rate: "", rateType: "day" });
   }
 
   function updateEvent(id: number, field: keyof EventItem, value: string) {
@@ -366,7 +399,10 @@ export default function LuxonOpsDashboard() {
             <div className="lg:col-span-2 space-y-5">
               <GlassCard><SectionHeader icon={<CalendarDays className="h-6 w-6" />} title="Editable Event Schedule" subtitle="Edit or delete event details, Google Maps address, GPS coordinates, and geofence radius." /><div className="grid gap-4">{events.map((event) => <EditableEventCard key={event.id} event={event} isEditing={editingEventId === event.id} onEdit={() => setEditingEventId(event.id)} onCancel={() => setEditingEventId(null)} onSave={() => setEditingEventId(null)} onDelete={() => deleteEvent(event.id)} onChange={(field, value) => updateEvent(event.id, field, value)} />)}</div></GlassCard>
               <GlassCard><SectionHeader icon={<ClipboardCheck className="h-6 w-6" />} title="Editable Crew Assignments" subtitle="Edit event, contractor, position, date, call time, clock times, break, pay rate, and rate type." /><div className="grid gap-4">{rows.map((row) => <EditableAssignmentCard key={row.id} row={row} events={events} contractors={contractors} isEditing={editingAssignmentId === row.id} onEdit={() => setEditingAssignmentId(row.id)} onCancel={() => setEditingAssignmentId(null)} onSave={() => setEditingAssignmentId(null)} onDelete={() => deleteAssignment(row.id)} onChange={(field, value) => updateAssignment(row.id, field, value)} />)}</div></GlassCard>
-              <GlassCard><SectionHeader icon={<UserPlus className="h-6 w-6" />} title="Add Crew Assignment" subtitle="Create a new crew position for any event." /><div className="grid gap-3 md:grid-cols-3"><Select label="Event" value={newAssignment.eventId} onChange={(v) => setNewAssignment({ ...newAssignment, eventId: Number(v) })} options={events.map((e) => ({ value: e.id, label: e.name }))} /><Select label="Contractor" value={newAssignment.contractorId} onChange={(v) => setNewAssignment({ ...newAssignment, contractorId: Number(v) })} options={contractors.map((c) => ({ value: c.id, label: c.name }))} /><Input label="Position" value={newAssignment.position} onChange={(v) => setNewAssignment({ ...newAssignment, position: v })} /><Input label="Work Date" type="date" value={newAssignment.workDate} onChange={(v) => setNewAssignment({ ...newAssignment, workDate: v })} /><Input label="Call Time" type="time" value={newAssignment.callTime} onChange={(v) => setNewAssignment({ ...newAssignment, callTime: v })} /><Input label="Rate" type="number" value={newAssignment.rate} onChange={(v) => setNewAssignment({ ...newAssignment, rate: v })} /><Select label="Rate Type" value={newAssignment.rateType} onChange={(v) => setNewAssignment({ ...newAssignment, rateType: v as "day" | "hour" })} options={[{ value: "day", label: "Day Rate" }, { value: "hour", label: "Hourly" }]} /></div><div className="mt-4 flex justify-end"><GoldButton onClick={addAssignment}><UserPlus className="h-4 w-4" /> Add Crew Assignment</GoldButton></div></GlassCard>
+              <GlassCard><SectionHeader icon={<UserPlus className="h-6 w-6" />} title="Add Crew Assignment" subtitle="Create a new crew position for any event." /><div className="grid gap-3 md:grid-cols-3"><Select label="Event" value={newAssignment.eventId} onChange={(v) => setNewAssignment({ ...newAssignment, eventId: Number(v) })} options={events.map((e) => ({ value: e.id, label: e.name }))} /><Select label="Contractor" value={newAssignment.contractorId} onChange={(v) => setNewAssignment({ ...newAssignment, contractorId: Number(v) })} options={contractors.map((c) => ({ value: c.id, label: c.name }))} /><Input label="Position" value={newAssignment.position} onChange={(v) => setNewAssignment({ ...newAssignment, position: v })} /><Input label="Single Work Date" type="date" value={newAssignment.workDate} onChange={(v) => setNewAssignment({ ...newAssignment, workDate: v })} /><Input label="Call Time" type="time" value={newAssignment.callTime} onChange={(v) => setNewAssignment({ ...newAssignment, callTime: v })} /><Input label="Rate" type="number" value={newAssignment.rate} onChange={(v) => setNewAssignment({ ...newAssignment, rate: v })} /><div className="md:col-span-3"><label className="block"><span className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">Multiple Work Dates</span><textarea value={newAssignment.workDates} onChange={(e) => setNewAssignment({ ...newAssignment, workDates: e.target.value })} placeholder={`Optional: enter multiple dates, one per line or comma separated
+2026-05-11
+2026-05-12
+2026-05-17`} className="min-h-[120px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60" /></label><p className="mt-2 text-xs text-zinc-500">Use this when a contractor is working multiple days on the same event. The app will create one assignment per date so communication stays clear.</p></div><Select label="Rate Type" value={newAssignment.rateType} onChange={(v) => setNewAssignment({ ...newAssignment, rateType: v as "day" | "hour" })} options={[{ value: "day", label: "Day Rate" }, { value: "hour", label: "Hourly" }]} /></div><div className="mt-4 flex justify-end"><GoldButton onClick={addAssignment}><UserPlus className="h-4 w-4" /> Add Crew Assignment</GoldButton></div></GlassCard>
             </div>
             <GlassCard><SectionHeader icon={<Plus className="h-6 w-6" />} title="Create Event" subtitle="Add address, coordinates, and radius for map/geofence features." /><div className="space-y-3"><Input label="Event Name" value={newEvent.name} onChange={(v) => setNewEvent({ ...newEvent, name: v })} /><Input label="Client" value={newEvent.client} onChange={(v) => setNewEvent({ ...newEvent, client: v })} /><Input label="Venue" value={newEvent.venue} onChange={(v) => setNewEvent({ ...newEvent, venue: v })} /><Input label="Address for Google Maps" value={newEvent.address} onChange={(v) => setNewEvent({ ...newEvent, address: v })} /><Input label="Latitude" value={newEvent.latitude} onChange={(v) => setNewEvent({ ...newEvent, latitude: v })} /><Input label="Longitude" value={newEvent.longitude} onChange={(v) => setNewEvent({ ...newEvent, longitude: v })} /><Input label="Allowed Clock-In Radius Feet" type="number" value={newEvent.geofenceRadiusFeet} onChange={(v) => setNewEvent({ ...newEvent, geofenceRadiusFeet: v })} /><Input label="Start Date" type="date" value={newEvent.startDate} onChange={(v) => setNewEvent({ ...newEvent, startDate: v })} /><Input label="End Date" type="date" value={newEvent.endDate} onChange={(v) => setNewEvent({ ...newEvent, endDate: v })} /><textarea className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60" placeholder="Event notes" value={newEvent.notes} onChange={(e) => setNewEvent({ ...newEvent, notes: e.target.value })} /><GoldButton onClick={addEvent}><Plus className="h-4 w-4" /> Create Event</GoldButton></div></GlassCard>
           </div>
