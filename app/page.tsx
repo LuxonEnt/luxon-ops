@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 import {
   CalendarDays,
   Clock,
@@ -75,49 +76,104 @@ type Assignment = {
   paid: boolean;
 };
 
-const startingContractors: Contractor[] = [
-  { id: 1, name: "Chris Ayala", role: "L1 / Lighting Tech", phone: "", email: "", rate: 400, rateType: "day", status: "Active" },
-  { id: 2, name: "Morris Ramos", role: "Video Engineer", phone: "", email: "", rate: 550, rateType: "day", status: "Active" },
-  { id: 3, name: "James Barber", role: "A1 / FOH Engineer", phone: "", email: "", rate: 650, rateType: "day", status: "Active" },
-  { id: 4, name: "Bryant Aquino", role: "Stagehand", phone: "", email: "", rate: 35, rateType: "hour", status: "Active" },
-];
+function contractorFromDb(row: any): Contractor {
+  return {
+    id: row.id,
+    name: row.name || "",
+    role: row.role || "",
+    phone: row.phone || "",
+    email: row.email || "",
+    rate: Number(row.rate || 0),
+    rateType: row.rate_type || "day",
+    status: row.status || "Active",
+  };
+}
 
-const startingEvents: EventItem[] = [
-  {
-    id: 101,
-    name: "CSUDH Graduation",
-    client: "Cal State University Dominguez Hills",
-    venue: "Dignity Health Sports Park",
-    address: "18400 Avalon Blvd, Carson, CA 90746",
-    latitude: "33.8644",
-    longitude: "-118.2611",
-    geofenceRadiusFeet: 1000,
-    startDate: "2026-05-11",
-    endDate: "2026-05-17",
-    status: "Scheduled",
-    notes: "Tennis Court. Setup, show, and strike labor.",
-  },
-  {
-    id: 102,
-    name: "Rosemont Middle School Event",
-    client: "Rosemont Middle School",
-    venue: "Rosemont Middle School",
-    address: "4725 Rosemont Ave, La Crescenta-Montrose, CA 91214",
-    latitude: "34.2252",
-    longitude: "-118.2259",
-    geofenceRadiusFeet: 750,
-    startDate: "2026-05-09",
-    endDate: "2026-05-09",
-    status: "In Progress",
-    notes: "Outdoor event. Crew should bring water and dress accordingly.",
-  },
-];
+function eventFromDb(row: any): EventItem {
+  return {
+    id: row.id,
+    name: row.name || "",
+    client: row.client || "",
+    venue: row.venue || "",
+    address: row.address || "",
+    latitude: row.latitude || "",
+    longitude: row.longitude || "",
+    geofenceRadiusFeet: Number(row.geofence_radius_feet || 750),
+    startDate: row.start_date || "",
+    endDate: row.end_date || "",
+    status: row.status || "Scheduled",
+    notes: row.notes || "",
+  };
+}
 
-const startingAssignments: Assignment[] = [
-  { id: 1001, eventId: 101, contractorId: 1, position: "Crew Lead / Stagehand", workDate: "2026-05-11", callTime: "08:00", clockIn: "08:02", clockOut: "18:01", clockInLocation: "33.8644,-118.2611", clockOutLocation: "33.8644,-118.2611", breakHours: 1, rate: 400, rateType: "day", confirmed: true, approved: true, paid: false },
-  { id: 1002, eventId: 101, contractorId: 4, position: "Stagehand", workDate: "2026-05-17", callTime: "09:00", clockIn: "09:00", clockOut: "21:00", clockInLocation: "", clockOutLocation: "", breakHours: 1, rate: 35, rateType: "hour", confirmed: false, approved: false, paid: false },
-  { id: 1003, eventId: 102, contractorId: 3, position: "A1 / FOH Engineer", workDate: "2026-05-09", callTime: "12:00", clockIn: "12:00", clockOut: "22:00", clockInLocation: "34.2252,-118.2259", clockOutLocation: "34.2252,-118.2259", breakHours: 1, rate: 650, rateType: "day", confirmed: true, approved: true, paid: false },
-];
+function assignmentFromDb(row: any): Assignment {
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    contractorId: row.contractor_id,
+    position: row.position || "",
+    workDate: row.work_date || "",
+    callTime: row.call_time ? String(row.call_time).slice(0, 5) : "",
+    clockIn: row.clock_in ? String(row.clock_in).slice(0, 5) : "",
+    clockOut: row.clock_out ? String(row.clock_out).slice(0, 5) : "",
+    clockInLocation: row.clock_in_location || "",
+    clockOutLocation: row.clock_out_location || "",
+    breakHours: Number(row.break_hours || 0),
+    rate: Number(row.rate || 0),
+    rateType: row.rate_type || "day",
+    confirmed: Boolean(row.confirmed),
+    approved: Boolean(row.approved),
+    paid: Boolean(row.paid),
+  };
+}
+
+function contractorToDb(contractor: Partial<Contractor>) {
+  return {
+    name: contractor.name,
+    role: contractor.role,
+    phone: contractor.phone,
+    email: contractor.email,
+    rate: contractor.rate,
+    rate_type: contractor.rateType,
+    status: contractor.status,
+  };
+}
+
+function eventToDb(event: Partial<EventItem>) {
+  return {
+    name: event.name,
+    client: event.client,
+    venue: event.venue,
+    address: event.address,
+    latitude: event.latitude,
+    longitude: event.longitude,
+    geofence_radius_feet: event.geofenceRadiusFeet,
+    start_date: event.startDate || null,
+    end_date: event.endDate || null,
+    status: event.status,
+    notes: event.notes,
+  };
+}
+
+function assignmentToDb(assignment: Partial<Assignment>) {
+  return {
+    event_id: assignment.eventId,
+    contractor_id: assignment.contractorId,
+    position: assignment.position,
+    work_date: assignment.workDate || null,
+    call_time: assignment.callTime || null,
+    clock_in: assignment.clockIn || null,
+    clock_out: assignment.clockOut || null,
+    clock_in_location: assignment.clockInLocation,
+    clock_out_location: assignment.clockOutLocation,
+    break_hours: assignment.breakHours,
+    rate: assignment.rate,
+    rate_type: assignment.rateType,
+    confirmed: assignment.confirmed,
+    approved: assignment.approved,
+    paid: assignment.paid,
+  };
+}
 
 function hoursBetween(start: string, end: string, breakHours = 0) {
   if (!start || !end) return 0;
@@ -157,7 +213,7 @@ function distanceFeet(lat1: number, lon1: number, lat2: number, lon2: number) {
   const earthRadiusFeet = 20902231;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return earthRadiusFeet * c;
 }
@@ -165,18 +221,54 @@ function distanceFeet(lat1: number, lon1: number, lat2: number, lon2: number) {
 export default function LuxonOpsDashboard() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [search, setSearch] = useState("");
-  const [contractors, setContractors] = useState<Contractor[]>(startingContractors);
-  const [events, setEvents] = useState<EventItem[]>(startingEvents);
-  const [assignments, setAssignments] = useState<Assignment[]>(startingAssignments);
-  const [selectedEventId, setSelectedEventId] = useState(101);
-  const [selectedInvoiceContractorId, setSelectedInvoiceContractorId] = useState(1);
+  const [contractors, setContractors] = useState<Contractor[]>([]);
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<number>(0);
+  const [selectedInvoiceContractorId, setSelectedInvoiceContractorId] = useState<number>(0);
   const [editingEventId, setEditingEventId] = useState<number | null>(null);
   const [editingContractorId, setEditingContractorId] = useState<number | null>(null);
   const [editingAssignmentId, setEditingAssignmentId] = useState<number | null>(null);
   const [geoMessage, setGeoMessage] = useState("");
+  const [loading, setLoading] = useState(true);
   const [newContractor, setNewContractor] = useState({ name: "", role: "", phone: "", email: "", rate: "", rateType: "day" as "day" | "hour" });
   const [newEvent, setNewEvent] = useState({ name: "", client: "", venue: "", address: "", latitude: "", longitude: "", geofenceRadiusFeet: "750", startDate: "", endDate: "", notes: "" });
-  const [newAssignment, setNewAssignment] = useState({ eventId: 101, contractorId: 1, position: "", workDate: "", workDates: "", callTime: "09:00", rate: "", rateType: "day" as "day" | "hour" });
+  const [newAssignment, setNewAssignment] = useState({ eventId: 0, contractorId: 0, position: "", workDate: "", workDates: "", callTime: "09:00", rate: "", rateType: "day" as "day" | "hour" });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function loadData() {
+    setLoading(true);
+
+    const { data: contractorData, error: contractorError } = await supabase.from("contractors").select("*").order("name");
+    const { data: eventData, error: eventError } = await supabase.from("events").select("*").order("start_date", { ascending: false });
+    const { data: assignmentData, error: assignmentError } = await supabase.from("assignments").select("*").order("work_date", { ascending: true });
+
+    if (contractorError || eventError || assignmentError) {
+      console.error({ contractorError, eventError, assignmentError });
+      alert("Supabase could not load data. Check your table names, policies, and environment variables.");
+    }
+
+    const loadedContractors = (contractorData || []).map(contractorFromDb);
+    const loadedEvents = (eventData || []).map(eventFromDb);
+    const loadedAssignments = (assignmentData || []).map(assignmentFromDb);
+
+    setContractors(loadedContractors);
+    setEvents(loadedEvents);
+    setAssignments(loadedAssignments);
+
+    if (!selectedEventId && loadedEvents[0]) setSelectedEventId(loadedEvents[0].id);
+    if (!selectedInvoiceContractorId && loadedContractors[0]) setSelectedInvoiceContractorId(loadedContractors[0].id);
+    setNewAssignment((prev) => ({
+      ...prev,
+      eventId: prev.eventId || loadedEvents[0]?.id || 0,
+      contractorId: prev.contractorId || loadedContractors[0]?.id || 0,
+    }));
+
+    setLoading(false);
+  }
 
   const contractorMap = useMemo(() => Object.fromEntries(contractors.map((c) => [c.id, c])), [contractors]);
   const eventMap = useMemo(() => Object.fromEntries(events.map((e) => [e.id, e])), [events]);
@@ -198,10 +290,8 @@ export default function LuxonOpsDashboard() {
   const approvedPayroll = rows.filter((row) => row.approved).reduce((sum, row) => sum + row.total, 0);
   const pendingCount = rows.filter((row) => !row.approved || !row.confirmed).length;
   const todayJob = rows.find((row) => row.event?.status === "In Progress") || rows[0];
-  const selectedEventRows = rows.filter((row) => row.eventId === selectedEventId);
   const selectedEvent = eventMap[selectedEventId];
   const selectedInvoiceContractor = contractorMap[selectedInvoiceContractorId];
-
   const approvedContractorInvoiceRows = rows.filter((row) => row.eventId === selectedEventId && row.contractorId === selectedInvoiceContractorId && row.approved);
 
   const contractorInvoiceLines = approvedContractorInvoiceRows.map((row) => {
@@ -218,25 +308,48 @@ export default function LuxonOpsDashboard() {
   const invoiceOvertimeHours = contractorInvoiceLines.reduce((sum, row) => sum + row.overtimeHours, 0);
   const invoiceTotal = contractorInvoiceLines.reduce((sum, row) => sum + row.invoiceTotal, 0);
 
-  function addContractor() {
+  async function addContractor() {
     if (!newContractor.name.trim()) return;
-    setContractors((prev) => [...prev, { id: Date.now(), name: newContractor.name, role: newContractor.role || "Contractor", phone: newContractor.phone, email: newContractor.email, rate: Number(newContractor.rate || 0), rateType: newContractor.rateType, status: "Active" }]);
+    const { error } = await supabase.from("contractors").insert(contractorToDb({
+      name: newContractor.name,
+      role: newContractor.role || "Contractor",
+      phone: newContractor.phone,
+      email: newContractor.email,
+      rate: Number(newContractor.rate || 0),
+      rateType: newContractor.rateType,
+      status: "Active",
+    }));
+    if (error) return alert(error.message);
     setNewContractor({ name: "", role: "", phone: "", email: "", rate: "", rateType: "day" });
+    loadData();
   }
 
-  function addEvent() {
+  async function addEvent() {
     if (!newEvent.name.trim()) return;
-    const id = Date.now();
-    setEvents((prev) => [...prev, { id, name: newEvent.name, client: newEvent.client, venue: newEvent.venue, address: newEvent.address, latitude: newEvent.latitude, longitude: newEvent.longitude, geofenceRadiusFeet: Number(newEvent.geofenceRadiusFeet || 750), startDate: newEvent.startDate, endDate: newEvent.endDate || newEvent.startDate, notes: newEvent.notes, status: "Scheduled" }]);
-    setSelectedEventId(id);
+    const { data, error } = await supabase.from("events").insert(eventToDb({
+      name: newEvent.name,
+      client: newEvent.client,
+      venue: newEvent.venue,
+      address: newEvent.address,
+      latitude: newEvent.latitude,
+      longitude: newEvent.longitude,
+      geofenceRadiusFeet: Number(newEvent.geofenceRadiusFeet || 750),
+      startDate: newEvent.startDate,
+      endDate: newEvent.endDate || newEvent.startDate,
+      notes: newEvent.notes,
+      status: "Scheduled",
+    })).select().single();
+    if (error) return alert(error.message);
+    if (data) setSelectedEventId(data.id);
     setNewEvent({ name: "", client: "", venue: "", address: "", latitude: "", longitude: "", geofenceRadiusFeet: "750", startDate: "", endDate: "", notes: "" });
+    loadData();
   }
 
-  function addAssignment() {
+  async function addAssignment() {
     if (!newAssignment.position.trim()) return;
 
     const datesFromMultiField = newAssignment.workDates
-    .split(/[\n,]+/)
+      .split(/[\n,]+/)
       .map((date) => date.trim())
       .filter(Boolean);
 
@@ -247,8 +360,7 @@ export default function LuxonOpsDashboard() {
       return;
     }
 
-    const createdAssignments = datesToSchedule.map((date, index) => ({
-      id: Date.now() + index,
+    const createdAssignments = datesToSchedule.map((date) => assignmentToDb({
       eventId: Number(newAssignment.eventId),
       contractorId: Number(newAssignment.contractorId),
       position: newAssignment.position,
@@ -266,45 +378,67 @@ export default function LuxonOpsDashboard() {
       paid: false,
     }));
 
-    setAssignments((prev) => [...prev, ...createdAssignments]);
+    const { error } = await supabase.from("assignments").insert(createdAssignments);
+    if (error) return alert(error.message);
     setNewAssignment({ eventId: events[0]?.id || 0, contractorId: contractors[0]?.id || 0, position: "", workDate: "", workDates: "", callTime: "09:00", rate: "", rateType: "day" });
+    loadData();
   }
 
-  function updateEvent(id: number, field: keyof EventItem, value: string) {
-    setEvents((prev) => prev.map((event) => (event.id === id ? { ...event, [field]: field === "geofenceRadiusFeet" ? Number(value || 0) : value } : event)));
+  async function updateEvent(id: number, field: keyof EventItem, value: string) {
+    const current = events.find((event) => event.id === id);
+    if (!current) return;
+    const updated = { ...current, [field]: field === "geofenceRadiusFeet" ? Number(value || 0) : value } as EventItem;
+    setEvents((prev) => prev.map((event) => (event.id === id ? updated : event)));
+    await supabase.from("events").update(eventToDb(updated)).eq("id", id);
   }
 
-  function deleteEvent(id: number) {
+  async function deleteEvent(id: number) {
     const ok = window.confirm("Delete this event and all crew assignments attached to it?");
     if (!ok) return;
-    setEvents((prev) => prev.filter((event) => event.id !== id));
-    setAssignments((prev) => prev.filter((assignment) => assignment.eventId !== id));
+    const { error } = await supabase.from("events").delete().eq("id", id);
+    if (error) return alert(error.message);
     if (selectedEventId === id) setSelectedEventId(events.find((event) => event.id !== id)?.id || 0);
+    loadData();
   }
 
-  function updateContractor(id: number, field: keyof Contractor, value: string) {
-    setContractors((prev) => prev.map((contractor) => (contractor.id === id ? { ...contractor, [field]: field === "rate" ? Number(value || 0) : value } : contractor)));
+  async function updateContractor(id: number, field: keyof Contractor, value: string) {
+    const current = contractors.find((contractor) => contractor.id === id);
+    if (!current) return;
+    const updated = { ...current, [field]: field === "rate" ? Number(value || 0) : value } as Contractor;
+    setContractors((prev) => prev.map((contractor) => (contractor.id === id ? updated : contractor)));
+    await supabase.from("contractors").update(contractorToDb(updated)).eq("id", id);
   }
 
-  function deleteContractor(id: number) {
+  async function deleteContractor(id: number) {
     const ok = window.confirm("Delete this contractor and all their assignments?");
     if (!ok) return;
-    setContractors((prev) => prev.filter((contractor) => contractor.id !== id));
-    setAssignments((prev) => prev.filter((assignment) => assignment.contractorId !== id));
+    const { error } = await supabase.from("contractors").delete().eq("id", id);
+    if (error) return alert(error.message);
+    loadData();
   }
 
-  function updateAssignment(id: number, field: keyof Assignment, value: string | number | boolean) {
-    setAssignments((prev) => prev.map((assignment) => (assignment.id === id ? { ...assignment, [field]: field === "rate" || field === "breakHours" || field === "eventId" || field === "contractorId" ? Number(value || 0) : value } : assignment)));
+  async function updateAssignment(id: number, field: keyof Assignment, value: string | number | boolean) {
+    const current = assignments.find((assignment) => assignment.id === id);
+    if (!current) return;
+    const updated = { ...current, [field]: field === "rate" || field === "breakHours" || field === "eventId" || field === "contractorId" ? Number(value || 0) : value } as Assignment;
+    setAssignments((prev) => prev.map((assignment) => (assignment.id === id ? updated : assignment)));
+    await supabase.from("assignments").update(assignmentToDb(updated)).eq("id", id);
   }
 
-  function deleteAssignment(id: number) {
+  async function deleteAssignment(id: number) {
     const ok = window.confirm("Delete this crew assignment?");
     if (!ok) return;
-    setAssignments((prev) => prev.filter((assignment) => assignment.id !== id));
+    const { error } = await supabase.from("assignments").delete().eq("id", id);
+    if (error) return alert(error.message);
+    loadData();
   }
 
-  function toggleAssignment(id: number, key: "confirmed" | "approved" | "paid") {
-    setAssignments((prev) => prev.map((a) => (a.id === id ? { ...a, [key]: !a[key] } : a)));
+  async function toggleAssignment(id: number, key: "confirmed" | "approved" | "paid") {
+    const current = assignments.find((assignment) => assignment.id === id);
+    if (!current) return;
+    const updated = { ...current, [key]: !current[key] };
+    setAssignments((prev) => prev.map((assignment) => (assignment.id === id ? updated : assignment)));
+    await supabase.from("assignments").update({ [key]: updated[key] }).eq("id", id);
   }
 
   function getCurrentPosition(): Promise<GeolocationPosition> {
@@ -341,7 +475,12 @@ export default function LuxonOpsDashboard() {
         return;
       }
 
-      setAssignments((prev) => prev.map((a) => a.id === id ? { ...a, [type === "in" ? "clockIn" : "clockOut"]: nowTimeInput(), [type === "in" ? "clockInLocation" : "clockOutLocation"]: locationStamp } : a));
+      const updated: Partial<Assignment> = type === "in"
+        ? { clockIn: nowTimeInput(), clockInLocation: locationStamp }
+        : { clockOut: nowTimeInput(), clockOutLocation: locationStamp };
+
+      setAssignments((prev) => prev.map((a) => a.id === id ? { ...a, ...updated } : a));
+      await supabase.from("assignments").update(assignmentToDb(updated)).eq("id", id);
       setGeoMessage(`Clock-${type} approved. Location verified within ${Math.round(distance)} ft of event.`);
     } catch (error: any) {
       setGeoMessage(error?.message || "Location permission failed. Contractor must allow location access to clock in/out.");
@@ -361,10 +500,12 @@ export default function LuxonOpsDashboard() {
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-200 backdrop-blur-xl"><RadioTower className="h-3.5 w-3.5" />Luxon Entertainment Operations</div>
             <h1 className="text-3xl font-bold tracking-tight md:text-5xl">Contractor Command Center</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400 md:text-base">Editable events, crew, rates, geofence clock-in, Google Maps directions, payroll, and invoices.</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400 md:text-base">Editable events, crew, rates, geofence clock-in, Google Maps directions, payroll, invoices, and Supabase database storage.</p>
           </div>
           <button onClick={() => setActiveTab("schedule")} className="group flex h-14 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-6 font-semibold text-black shadow-[0_0_35px_rgba(245,158,11,0.28)] transition hover:scale-[1.02]"><Plus className="h-5 w-5" /> New Event</button>
         </header>
+
+        {loading && <div className="mb-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">Loading saved data from Supabase...</div>}
 
         <nav className="mb-6 grid grid-cols-3 gap-2 rounded-3xl border border-white/10 bg-white/[0.04] p-2 backdrop-blur-xl md:flex md:w-fit">
           {[["dashboard", "Dashboard"], ["schedule", "Schedule"], ["crew", "Crew"], ["payroll", "Payroll"], ["invoices", "Invoices"], ["updates", "Updates"]].map(([key, label]) => <button key={key} onClick={() => setActiveTab(key)} className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${activeTab === key ? "bg-amber-400 text-black shadow-lg shadow-amber-500/20" : "text-zinc-400 hover:bg-white/10 hover:text-white"}`}>{label}</button>)}
@@ -381,14 +522,14 @@ export default function LuxonOpsDashboard() {
               <GlassCard>
                 <div className="mb-4 flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.2em] text-amber-300">Contractor View</p><h2 className="text-2xl font-bold">Today’s Job</h2></div><div className="rounded-2xl bg-emerald-400/10 p-3 text-emerald-300"><ShieldCheck className="h-6 w-6" /></div></div>
                 <div className="rounded-3xl border border-amber-400/20 bg-gradient-to-br from-amber-400/15 to-white/[0.03] p-5">
-                  <h3 className="text-xl font-bold">{todayJob?.event?.name}</h3><p className="mt-1 text-sm text-zinc-400">{todayJob?.position}</p>
+                  <h3 className="text-xl font-bold">{todayJob?.event?.name || "No job scheduled"}</h3><p className="mt-1 text-sm text-zinc-400">{todayJob?.position || "Add an assignment to begin"}</p>
                   <div className="mt-5 space-y-3 text-sm"><InfoLine icon={<Clock className="h-4 w-4" />} label="Call Time" value={timeLabel(todayJob?.callTime || "")} /><InfoLine icon={<MapPin className="h-4 w-4" />} label="Venue" value={todayJob?.event?.venue || ""} /><InfoLine icon={<DollarSign className="h-4 w-4" />} label="Rate" value={`${money(todayJob?.rate || 0)} / ${todayJob?.rateType || "day"}`} /><InfoLine icon={<Crosshair className="h-4 w-4" />} label="Geofence" value={`${todayJob?.event?.geofenceRadiusFeet || 0} ft radius`} /></div>
                   {geoMessage && <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-sm text-amber-100">{geoMessage}</div>}
                   <div className="mt-6 grid grid-cols-2 gap-3"><button onClick={() => geofenceClock(todayJob?.id, "in")} className="h-14 rounded-2xl bg-emerald-400 font-bold text-black shadow-lg shadow-emerald-500/20">Clock In</button><button onClick={() => geofenceClock(todayJob?.id, "out")} className="h-14 rounded-2xl border border-red-400/30 bg-red-500/10 font-bold text-red-200">Clock Out</button></div>
                   <a href={mapsUrl(todayJob?.event?.address || "")} target="_blank" rel="noreferrer" className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 text-sm font-semibold text-zinc-200 hover:bg-white/10"><Navigation className="h-4 w-4" /> View Google Maps</a>
                 </div>
               </GlassCard>
-              <GlassCard><h2 className="mb-4 text-xl font-semibold">Operations Alerts</h2><Alert title="Location-based clock-in enabled" text="Contractors must allow location access and be within the event radius." tone="green" /><Alert title="Missing confirmations" text="Send reminder before final roster lock." tone="amber" /><Alert title="Payroll approval pending" text="Approve hours before invoice export." tone="red" /></GlassCard>
+              <GlassCard><h2 className="mb-4 text-xl font-semibold">Operations Alerts</h2><Alert title="Database storage enabled" text="New events, contractors, assignments, and clock-ins now save in Supabase." tone="green" /><Alert title="Location-based clock-in enabled" text="Contractors must allow location access and be within the event radius." tone="green" /><Alert title="Payroll approval pending" text="Approve hours before invoice export." tone="red" /></GlassCard>
             </div>
           </div>
         )}
@@ -398,10 +539,7 @@ export default function LuxonOpsDashboard() {
             <div className="lg:col-span-2 space-y-5">
               <GlassCard><SectionHeader icon={<CalendarDays className="h-6 w-6" />} title="Editable Event Schedule" subtitle="Edit or delete event details, Google Maps address, GPS coordinates, and geofence radius." /><div className="grid gap-4">{events.map((event) => <EditableEventCard key={event.id} event={event} isEditing={editingEventId === event.id} onEdit={() => setEditingEventId(event.id)} onCancel={() => setEditingEventId(null)} onSave={() => setEditingEventId(null)} onDelete={() => deleteEvent(event.id)} onChange={(field, value) => updateEvent(event.id, field, value)} />)}</div></GlassCard>
               <GlassCard><SectionHeader icon={<ClipboardCheck className="h-6 w-6" />} title="Editable Crew Assignments" subtitle="Edit event, contractor, position, date, call time, clock times, break, pay rate, and rate type." /><div className="grid gap-4">{rows.map((row) => <EditableAssignmentCard key={row.id} row={row} events={events} contractors={contractors} isEditing={editingAssignmentId === row.id} onEdit={() => setEditingAssignmentId(row.id)} onCancel={() => setEditingAssignmentId(null)} onSave={() => setEditingAssignmentId(null)} onDelete={() => deleteAssignment(row.id)} onChange={(field, value) => updateAssignment(row.id, field, value)} />)}</div></GlassCard>
-              <GlassCard><SectionHeader icon={<UserPlus className="h-6 w-6" />} title="Add Crew Assignment" subtitle="Create a new crew position for any event." /><div className="grid gap-3 md:grid-cols-3"><Select label="Event" value={newAssignment.eventId} onChange={(v) => setNewAssignment({ ...newAssignment, eventId: Number(v) })} options={events.map((e) => ({ value: e.id, label: e.name }))} /><Select label="Contractor" value={newAssignment.contractorId} onChange={(v) => setNewAssignment({ ...newAssignment, contractorId: Number(v) })} options={contractors.map((c) => ({ value: c.id, label: c.name }))} /><Input label="Position" value={newAssignment.position} onChange={(v) => setNewAssignment({ ...newAssignment, position: v })} /><Input label="Single Work Date" type="date" value={newAssignment.workDate} onChange={(v) => setNewAssignment({ ...newAssignment, workDate: v })} /><Input label="Call Time" type="time" value={newAssignment.callTime} onChange={(v) => setNewAssignment({ ...newAssignment, callTime: v })} /><Input label="Rate" type="number" value={newAssignment.rate} onChange={(v) => setNewAssignment({ ...newAssignment, rate: v })} /><div className="md:col-span-3"><label className="block"><span className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">Multiple Work Dates</span><textarea value={newAssignment.workDates} onChange={(e) => setNewAssignment({ ...newAssignment, workDates: e.target.value })} placeholder={`Optional: enter multiple dates, one per line or comma separated
-2026-05-11
-2026-05-12
-2026-05-17`} className="min-h-[120px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60" /></label><p className="mt-2 text-xs text-zinc-500">Use this when a contractor is working multiple days on the same event. The app will create one assignment per date so communication stays clear.</p></div><Select label="Rate Type" value={newAssignment.rateType} onChange={(v) => setNewAssignment({ ...newAssignment, rateType: v as "day" | "hour" })} options={[{ value: "day", label: "Day Rate" }, { value: "hour", label: "Hourly" }]} /></div><div className="mt-4 flex justify-end"><GoldButton onClick={addAssignment}><UserPlus className="h-4 w-4" /> Add Crew Assignment</GoldButton></div></GlassCard>
+              <GlassCard><SectionHeader icon={<UserPlus className="h-6 w-6" />} title="Add Crew Assignment" subtitle="Create a new crew position for any event." /><div className="grid gap-3 md:grid-cols-3"><Select label="Event" value={newAssignment.eventId} onChange={(v) => setNewAssignment({ ...newAssignment, eventId: Number(v) })} options={events.map((e) => ({ value: e.id, label: e.name }))} /><Select label="Contractor" value={newAssignment.contractorId} onChange={(v) => setNewAssignment({ ...newAssignment, contractorId: Number(v) })} options={contractors.map((c) => ({ value: c.id, label: c.name }))} /><Input label="Position" value={newAssignment.position} onChange={(v) => setNewAssignment({ ...newAssignment, position: v })} /><Input label="Single Work Date" type="date" value={newAssignment.workDate} onChange={(v) => setNewAssignment({ ...newAssignment, workDate: v })} /><Input label="Call Time" type="time" value={newAssignment.callTime} onChange={(v) => setNewAssignment({ ...newAssignment, callTime: v })} /><Input label="Rate" type="number" value={newAssignment.rate} onChange={(v) => setNewAssignment({ ...newAssignment, rate: v })} /><div className="md:col-span-3"><label className="block"><span className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">Multiple Work Dates</span><textarea value={newAssignment.workDates} onChange={(e) => setNewAssignment({ ...newAssignment, workDates: e.target.value })} placeholder={`Optional: enter multiple dates, one per line or comma separated\n2026-05-11\n2026-05-12\n2026-05-17`} className="min-h-[120px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60" /></label><p className="mt-2 text-xs text-zinc-500">Use this when a contractor is working multiple days on the same event. The app will create one assignment per date so communication stays clear.</p></div><Select label="Rate Type" value={newAssignment.rateType} onChange={(v) => setNewAssignment({ ...newAssignment, rateType: v as "day" | "hour" })} options={[{ value: "day", label: "Day Rate" }, { value: "hour", label: "Hourly" }]} /></div><div className="mt-4 flex justify-end"><GoldButton onClick={addAssignment}><UserPlus className="h-4 w-4" /> Add Crew Assignment</GoldButton></div></GlassCard>
             </div>
             <GlassCard><SectionHeader icon={<Plus className="h-6 w-6" />} title="Create Event" subtitle="Add address, coordinates, and radius for map/geofence features." /><div className="space-y-3"><Input label="Event Name" value={newEvent.name} onChange={(v) => setNewEvent({ ...newEvent, name: v })} /><Input label="Client" value={newEvent.client} onChange={(v) => setNewEvent({ ...newEvent, client: v })} /><Input label="Venue" value={newEvent.venue} onChange={(v) => setNewEvent({ ...newEvent, venue: v })} /><Input label="Address for Google Maps" value={newEvent.address} onChange={(v) => setNewEvent({ ...newEvent, address: v })} /><Input label="Latitude" value={newEvent.latitude} onChange={(v) => setNewEvent({ ...newEvent, latitude: v })} /><Input label="Longitude" value={newEvent.longitude} onChange={(v) => setNewEvent({ ...newEvent, longitude: v })} /><Input label="Allowed Clock-In Radius Feet" type="number" value={newEvent.geofenceRadiusFeet} onChange={(v) => setNewEvent({ ...newEvent, geofenceRadiusFeet: v })} /><Input label="Start Date" type="date" value={newEvent.startDate} onChange={(v) => setNewEvent({ ...newEvent, startDate: v })} /><Input label="End Date" type="date" value={newEvent.endDate} onChange={(v) => setNewEvent({ ...newEvent, endDate: v })} /><textarea className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60" placeholder="Event notes" value={newEvent.notes} onChange={(e) => setNewEvent({ ...newEvent, notes: e.target.value })} /><GoldButton onClick={addEvent}><Plus className="h-4 w-4" /> Create Event</GoldButton></div></GlassCard>
           </div>
