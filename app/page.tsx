@@ -231,6 +231,16 @@ const { data: eventData, error: eventError } = await supabase
 const { data: assignmentData, error: assignmentError } = await supabase
   .from("assignments")
   .select("*");
+  .from("contractors")
+  .select("*");
+
+const { data: eventData, error: eventError } = await supabase
+  .from("events")
+  .select("*");
+
+const { data: assignmentData, error: assignmentError } = await supabase
+  .from("assignments")
+  .select("*");
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number>(0);
   const [selectedInvoiceContractorId, setSelectedInvoiceContractorId] = useState<number>(0);
