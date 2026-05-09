@@ -236,8 +236,7 @@ export default function LuxonOpsDashboard() {
     if (!newAssignment.position.trim()) return;
 
     const datesFromMultiField = newAssignment.workDates
-      .split(/[,
-]/)
+    .split(/[\n,]+/)
       .map((date) => date.trim())
       .filter(Boolean);
 
