@@ -267,7 +267,10 @@ function distanceFeet(lat1: number, lon1: number, lat2: number, lon2: number) {
   return earthRadiusFeet * c;
 }
 
+type PortalMode = "manager" | "contractor";
+
 export default function LuxonOpsDashboard() {
+  const [portalMode, setPortalMode] = useState<PortalMode>("manager");
   const [activeTab, setActiveTab] = useState("dashboard");
   const [search, setSearch] = useState("");
   const [contractors, setContractors] = useState<Contractor[]>([]);
@@ -275,6 +278,8 @@ export default function LuxonOpsDashboard() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number>(0);
   const [selectedInvoiceContractorId, setSelectedInvoiceContractorId] =
+    useState<number>(0);
+  const [selectedContractorPortalId, setSelectedContractorPortalId] =
     useState<number>(0);
   const [editingEventId, setEditingEventId] = useState<number | null>(null);
   const [editingContractorId, setEditingContractorId] = useState<number | null>(
@@ -365,6 +370,9 @@ export default function LuxonOpsDashboard() {
     if (!selectedInvoiceContractorId && loadedContractors[0]) {
       setSelectedInvoiceContractorId(loadedContractors[0].id);
     }
+    if (!selectedContractorPortalId && loadedContractors[0]) {
+      setSelectedContractorPortalId(loadedContractors[0].id);
+    }
 
     setNewAssignment((prev) => ({
       ...prev,
@@ -379,7 +387,6 @@ export default function LuxonOpsDashboard() {
     () => Object.fromEntries(contractors.map((c) => [c.id, c])),
     [contractors]
   );
-
   const eventMap = useMemo(
     () => Object.fromEntries(events.map((e) => [e.id, e])),
     [events]
@@ -411,8 +418,25 @@ export default function LuxonOpsDashboard() {
     (row) => !row.approved || !row.confirmed
   ).length;
   const todayJob = rows.find((row) => row.event?.status === "In Progress") || rows[0];
+
   const selectedEvent = eventMap[selectedEventId];
   const selectedInvoiceContractor = contractorMap[selectedInvoiceContractorId];
+
+  const contractorPortalUser =
+    contractorMap[selectedContractorPortalId] || contractors[0];
+
+  const contractorPortalRows = rows.filter(
+    (row) => row.contractorId === contractorPortalUser?.id
+  );
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const contractorUpcomingRows = contractorPortalRows.filter(
+    (row) => row.workDate >= todayIso
+  );
+  const contractorPastRows = contractorPortalRows.filter(
+    (row) => row.workDate < todayIso
+  );
 
   const approvedContractorInvoiceRows = rows.filter(
     (row) =>
@@ -537,7 +561,6 @@ export default function LuxonOpsDashboard() {
       .single();
 
     if (error) return alert(error.message);
-
     if (data) setSelectedEventId(data.id);
 
     setNewEvent({
@@ -824,18 +847,19 @@ export default function LuxonOpsDashboard() {
               Contractor Command Center
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400 md:text-base">
-              Editable events, crew, rates, geofence clock-in, Google Maps directions,
-              payroll, invoices, and Supabase database storage.
+              Separate manager and contractor views in one app.
             </p>
           </div>
 
-          <button
-            onClick={() => setActiveTab("schedule")}
-            className="group flex h-14 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-6 font-semibold text-black shadow-[0_0_35px_rgba(245,158,11,0.28)] transition hover:scale-[1.02]"
-          >
-            <Plus className="h-5 w-5" />
-            New Event
-          </button>
+          {portalMode === "manager" && (
+            <button
+              onClick={() => setActiveTab("schedule")}
+              className="group flex h-14 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-6 font-semibold text-black shadow-[0_0_35px_rgba(245,158,11,0.28)] transition hover:scale-[1.02]"
+            >
+              <Plus className="h-5 w-5" />
+              New Event
+            </button>
+          )}
         </header>
 
         {loading && (
@@ -844,185 +868,829 @@ export default function LuxonOpsDashboard() {
           </div>
         )}
 
-        <nav className="mb-6 grid grid-cols-3 gap-2 rounded-3xl border border-white/10 bg-white/[0.04] p-2 backdrop-blur-xl md:flex md:w-fit">
-          {[
-            ["dashboard", "Dashboard"],
-            ["schedule", "Schedule"],
-            ["crew", "Crew"],
-            ["payroll", "Payroll"],
-            ["invoices", "Invoices"],
-            ["updates", "Updates"],
-          ].map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
-                activeTab === key
-                  ? "bg-amber-400 text-black shadow-lg shadow-amber-500/20"
-                  : "text-zinc-400 hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
+        <div className="mb-4 flex flex-wrap gap-3">
+          <button
+            onClick={() => setPortalMode("manager")}
+            className={`rounded-2xl px-5 py-3 text-sm font-semibold transition ${
+              portalMode === "manager"
+                ? "bg-amber-400 text-black"
+                : "border border-white/10 bg-white/5 text-zinc-300"
+            }`}
+          >
+            Manager Portal
+          </button>
+          <button
+            onClick={() => setPortalMode("contractor")}
+            className={`rounded-2xl px-5 py-3 text-sm font-semibold transition ${
+              portalMode === "contractor"
+                ? "bg-amber-400 text-black"
+                : "border border-white/10 bg-white/5 text-zinc-300"
+            }`}
+          >
+            Contractor Portal
+          </button>
+        </div>
 
-        {activeTab === "dashboard" && (
+        {portalMode === "contractor" ? (
           <div className="grid gap-5 lg:grid-cols-3">
-            <div className="space-y-5 lg:col-span-2">
-              <div className="grid gap-4 md:grid-cols-4">
-                <Metric icon={<CalendarDays className="h-5 w-5" />} label="Events" value={events.length.toString()} />
-                <Metric icon={<Users className="h-5 w-5" />} label="Crew" value={contractors.length.toString()} />
-                <Metric icon={<AlertTriangle className="h-5 w-5" />} label="Needs Review" value={pendingCount.toString()} />
-                <Metric icon={<DollarSign className="h-5 w-5" />} label="Labor" value={money(payrollTotal)} />
-              </div>
-
+            <div className="lg:col-span-1">
               <GlassCard>
-                <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                  <SectionHeader
-                    icon={<ClipboardCheck className="h-6 w-6" />}
-                    title="Live Labor Board"
-                    subtitle="Edit assignments inside Schedule or Payroll."
-                    compact
+                <SectionHeader
+                  icon={<Users className="h-6 w-6" />}
+                  title="Contractor Portal"
+                  subtitle="Simple view with only personal jobs and personal rate."
+                />
+
+                <Select
+                  label="Contractor Profile"
+                  value={selectedContractorPortalId || contractorPortalUser?.id || 0}
+                  onChange={(v) => setSelectedContractorPortalId(Number(v))}
+                  options={contractors.map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                  }))}
+                />
+
+                <div className="mt-4 space-y-3 rounded-3xl border border-white/10 bg-black/25 p-4 text-sm">
+                  <InfoLine
+                    icon={<Users className="h-4 w-4" />}
+                    label="Name"
+                    value={contractorPortalUser?.name || ""}
                   />
-                  <SearchBox search={search} setSearch={setSearch} />
+                  <InfoLine
+                    icon={<Phone className="h-4 w-4" />}
+                    label="Phone"
+                    value={contractorPortalUser?.phone || ""}
+                  />
+                  <InfoLine
+                    icon={<Mail className="h-4 w-4" />}
+                    label="Email"
+                    value={contractorPortalUser?.email || ""}
+                  />
+                  <InfoLine
+                    icon={<DollarSign className="h-4 w-4" />}
+                    label="My Rate"
+                    value={`${money(contractorPortalUser?.rate || 0)} / ${
+                      contractorPortalUser?.rateType || "day"
+                    }`}
+                  />
                 </div>
 
-                <CrewTable
-                  rows={filteredRows}
-                  onToggle={toggleAssignment}
-                  onEdit={(id) => {
-                    setActiveTab("payroll");
-                    setEditingAssignmentId(id);
-                  }}
-                  onDelete={deleteAssignment}
-                />
+                <div className="mt-4 rounded-3xl border border-white/10 bg-black/25 p-4">
+                  <div className="text-xs uppercase tracking-wider text-zinc-500">
+                    Skills / Abilities
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {contractorPortalUser?.skills?.length ? (
+                      contractorPortalUser.skills.map((skill, i) => (
+                        <span
+                          key={i}
+                          className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs text-amber-200"
+                        >
+                          {skill}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-zinc-400">No skills listed</span>
+                    )}
+                  </div>
+                </div>
               </GlassCard>
             </div>
 
-            <div className="space-y-5">
-              <GlassCard>
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-amber-300">
-                      Contractor View
-                    </p>
-                    <h2 className="text-2xl font-bold">Today’s Job</h2>
-                  </div>
-                  <div className="rounded-2xl bg-emerald-400/10 p-3 text-emerald-300">
-                    <ShieldCheck className="h-6 w-6" />
-                  </div>
-                </div>
-
-                <div className="rounded-3xl border border-amber-400/20 bg-gradient-to-br from-amber-400/15 to-white/[0.03] p-5">
-                  <h3 className="text-xl font-bold">
-                    {todayJob?.event?.name || "No job scheduled"}
-                  </h3>
-                  <p className="mt-1 text-sm text-zinc-400">
-                    {todayJob?.position || "Add an assignment to begin"}
-                  </p>
-
-                  <div className="mt-5 space-y-3 text-sm">
-                    <InfoLine icon={<Clock className="h-4 w-4" />} label="Call Time" value={timeLabel(todayJob?.callTime || "")} />
-                    <InfoLine icon={<MapPin className="h-4 w-4" />} label="Venue" value={todayJob?.event?.venue || ""} />
-                    <InfoLine
-                      icon={<DollarSign className="h-4 w-4" />}
-                      label="Rate"
-                      value={`${money(todayJob?.rate || 0)} / ${todayJob?.rateType || "day"}`}
-                    />
-                    <InfoLine
-                      icon={<Crosshair className="h-4 w-4" />}
-                      label="Geofence"
-                      value={`${todayJob?.event?.geofenceRadiusFeet || 0} ft radius`}
-                    />
-                  </div>
-
-                  {geoMessage && (
-                    <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-sm text-amber-100">
-                      {geoMessage}
-                    </div>
-                  )}
-
-                  <div className="mt-6 grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => geofenceClock(todayJob?.id, "in")}
-                      className="h-14 rounded-2xl bg-emerald-400 font-bold text-black shadow-lg shadow-emerald-500/20"
-                    >
-                      Clock In
-                    </button>
-                    <button
-                      onClick={() => geofenceClock(todayJob?.id, "out")}
-                      className="h-14 rounded-2xl border border-red-400/30 bg-red-500/10 font-bold text-red-200"
-                    >
-                      Clock Out
-                    </button>
-                  </div>
-
-                  <a
-                    href={mapsUrl(todayJob?.event?.address || "")}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 text-sm font-semibold text-zinc-200 hover:bg-white/10"
-                  >
-                    <Navigation className="h-4 w-4" />
-                    View Google Maps
-                  </a>
-                </div>
-              </GlassCard>
-
-              <GlassCard>
-                <h2 className="mb-4 text-xl font-semibold">Operations Alerts</h2>
-                <Alert
-                  title="Database storage enabled"
-                  text="New events, contractors, assignments, and clock-ins now save in Supabase."
-                  tone="green"
-                />
-                <Alert
-                  title="Location-based clock-in enabled"
-                  text="Contractors must allow location access and be within the event radius."
-                  tone="green"
-                />
-                <Alert
-                  title="Payroll approval pending"
-                  text="Approve hours before invoice export."
-                  tone="red"
-                />
-              </GlassCard>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "schedule" && (
-          <div className="grid gap-5 lg:grid-cols-3">
             <div className="space-y-5 lg:col-span-2">
               <GlassCard>
                 <SectionHeader
                   icon={<CalendarDays className="h-6 w-6" />}
-                  title="Editable Event Schedule"
-                  subtitle="Edit or delete event details, Google Maps address, GPS coordinates, and geofence radius."
+                  title="My Upcoming Shows"
+                  subtitle="Only jobs assigned to this contractor."
                 />
                 <div className="grid gap-4">
-                  {events.map((event) => (
-                    <EditableEventCard
-                      key={event.id}
-                      event={event}
-                      isEditing={editingEventId === event.id}
-                      onEdit={() => setEditingEventId(event.id)}
-                      onCancel={() => setEditingEventId(null)}
-                      onSave={() => setEditingEventId(null)}
-                      onDelete={() => deleteEvent(event.id)}
-                      onChange={(field, value) => updateEvent(event.id, field, value)}
-                    />
-                  ))}
+                  {contractorUpcomingRows.length ? (
+                    contractorUpcomingRows.map((row) => (
+                      <div
+                        key={row.id}
+                        className="rounded-3xl border border-white/10 bg-black/25 p-5"
+                      >
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <h3 className="text-xl font-bold">{row.event?.name}</h3>
+                            <p className="text-sm text-zinc-400">{row.position}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-semibold text-amber-300">
+                              {money(row.rate)} / {row.rateType}
+                            </p>
+                            <p className="text-sm text-zinc-400">
+                              {dateLabel(row.workDate)} · {timeLabel(row.callTime)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <InfoLine
+                            icon={<MapPin className="h-4 w-4" />}
+                            label="Venue"
+                            value={row.event?.venue || ""}
+                          />
+                          <InfoLine
+                            icon={<Crosshair className="h-4 w-4" />}
+                            label="Clock Radius"
+                            value={`${row.event?.geofenceRadiusFeet || 0} ft`}
+                          />
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-3">
+                          <button
+                            onClick={() => geofenceClock(row.id, "in")}
+                            className="h-12 rounded-2xl bg-emerald-400 font-bold text-black"
+                          >
+                            Clock In
+                          </button>
+                          <button
+                            onClick={() => geofenceClock(row.id, "out")}
+                            className="h-12 rounded-2xl border border-red-400/30 bg-red-500/10 font-bold text-red-200"
+                          >
+                            Clock Out
+                          </button>
+                        </div>
+
+                        <a
+                          href={mapsUrl(row.event?.address || "")}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-3 flex h-12 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 text-sm font-semibold text-zinc-200 hover:bg-white/10"
+                        >
+                          <Navigation className="h-4 w-4" />
+                          View Google Maps
+                        </a>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-3xl border border-white/10 bg-black/25 p-5 text-zinc-400">
+                      No upcoming shows assigned.
+                    </div>
+                  )}
                 </div>
               </GlassCard>
 
               <GlassCard>
                 <SectionHeader
-                  icon={<ClipboardCheck className="h-6 w-6" />}
-                  title="Editable Crew Assignments"
-                  subtitle="Edit event, contractor, position, date, call time, clock times, break, pay rate, and rate type."
+                  icon={<Clock className="h-6 w-6" />}
+                  title="My Past Jobs / Hours"
+                  subtitle="Past jobs, approved hours, and payment status."
                 />
+                <div className="grid gap-4">
+                  {contractorPastRows.length ? (
+                    contractorPastRows.map((row) => (
+                      <div
+                        key={row.id}
+                        className="rounded-3xl border border-white/10 bg-black/25 p-5"
+                      >
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <h3 className="text-lg font-bold">{row.event?.name}</h3>
+                            <p className="text-sm text-zinc-400">
+                              {dateLabel(row.workDate)} · {row.position}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-semibold text-amber-300">
+                              {money(row.total)}
+                            </p>
+                            <p className="text-sm text-zinc-400">
+                              {row.hours.toFixed(2)} hrs
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-3">
+                          <InfoLine
+                            icon={<Clock className="h-4 w-4" />}
+                            label="Clocked"
+                            value={`${row.clockIn || "--"} - ${row.clockOut || "--"}`}
+                          />
+                          <InfoLine
+                            icon={<CheckCircle2 className="h-4 w-4" />}
+                            label="Approved"
+                            value={row.approved ? "Yes" : "Pending"}
+                          />
+                          <InfoLine
+                            icon={<DollarSign className="h-4 w-4" />}
+                            label="Paid"
+                            value={row.paid ? "Paid" : "Not paid"}
+                          />
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-3xl border border-white/10 bg-black/25 p-5 text-zinc-400">
+                      No past jobs yet.
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+            </div>
+          </div>
+        ) : (
+          <>
+            <nav className="mb-6 grid grid-cols-3 gap-2 rounded-3xl border border-white/10 bg-white/[0.04] p-2 backdrop-blur-xl md:flex md:w-fit">
+              {[
+                ["dashboard", "Dashboard"],
+                ["schedule", "Schedule"],
+                ["crew", "Crew"],
+                ["payroll", "Payroll"],
+                ["invoices", "Invoices"],
+                ["updates", "Updates"],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveTab(key)}
+                  className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                    activeTab === key
+                      ? "bg-amber-400 text-black shadow-lg shadow-amber-500/20"
+                      : "text-zinc-400 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+
+            {activeTab === "dashboard" && (
+              <div className="grid gap-5 lg:grid-cols-3">
+                <div className="space-y-5 lg:col-span-2">
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <Metric icon={<CalendarDays className="h-5 w-5" />} label="Events" value={events.length.toString()} />
+                    <Metric icon={<Users className="h-5 w-5" />} label="Crew" value={contractors.length.toString()} />
+                    <Metric icon={<AlertTriangle className="h-5 w-5" />} label="Needs Review" value={pendingCount.toString()} />
+                    <Metric icon={<DollarSign className="h-5 w-5" />} label="Labor" value={money(payrollTotal)} />
+                  </div>
+
+                  <GlassCard>
+                    <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <SectionHeader
+                        icon={<ClipboardCheck className="h-6 w-6" />}
+                        title="Live Labor Board"
+                        subtitle="Edit assignments inside Schedule or Payroll."
+                        compact
+                      />
+                      <SearchBox search={search} setSearch={setSearch} />
+                    </div>
+
+                    <CrewTable
+                      rows={filteredRows}
+                      onToggle={toggleAssignment}
+                      onEdit={(id) => {
+                        setActiveTab("payroll");
+                        setEditingAssignmentId(id);
+                      }}
+                      onDelete={deleteAssignment}
+                    />
+                  </GlassCard>
+                </div>
+
+                <div className="space-y-5">
+                  <GlassCard>
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-amber-300">
+                          Contractor View
+                        </p>
+                        <h2 className="text-2xl font-bold">Today’s Job</h2>
+                      </div>
+                      <div className="rounded-2xl bg-emerald-400/10 p-3 text-emerald-300">
+                        <ShieldCheck className="h-6 w-6" />
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-amber-400/20 bg-gradient-to-br from-amber-400/15 to-white/[0.03] p-5">
+                      <h3 className="text-xl font-bold">
+                        {todayJob?.event?.name || "No job scheduled"}
+                      </h3>
+                      <p className="mt-1 text-sm text-zinc-400">
+                        {todayJob?.position || "Add an assignment to begin"}
+                      </p>
+
+                      <div className="mt-5 space-y-3 text-sm">
+                        <InfoLine icon={<Clock className="h-4 w-4" />} label="Call Time" value={timeLabel(todayJob?.callTime || "")} />
+                        <InfoLine icon={<MapPin className="h-4 w-4" />} label="Venue" value={todayJob?.event?.venue || ""} />
+                        <InfoLine
+                          icon={<DollarSign className="h-4 w-4" />}
+                          label="Rate"
+                          value={`${money(todayJob?.rate || 0)} / ${
+                            todayJob?.rateType || "day"
+                          }`}
+                        />
+                        <InfoLine
+                          icon={<Crosshair className="h-4 w-4" />}
+                          label="Geofence"
+                          value={`${todayJob?.event?.geofenceRadiusFeet || 0} ft radius`}
+                        />
+                      </div>
+
+                      {geoMessage && (
+                        <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-sm text-amber-100">
+                          {geoMessage}
+                        </div>
+                      )}
+
+                      <div className="mt-6 grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => geofenceClock(todayJob?.id, "in")}
+                          className="h-14 rounded-2xl bg-emerald-400 font-bold text-black shadow-lg shadow-emerald-500/20"
+                        >
+                          Clock In
+                        </button>
+                        <button
+                          onClick={() => geofenceClock(todayJob?.id, "out")}
+                          className="h-14 rounded-2xl border border-red-400/30 bg-red-500/10 font-bold text-red-200"
+                        >
+                          Clock Out
+                        </button>
+                      </div>
+
+                      <a
+                        href={mapsUrl(todayJob?.event?.address || "")}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 text-sm font-semibold text-zinc-200 hover:bg-white/10"
+                      >
+                        <Navigation className="h-4 w-4" />
+                        View Google Maps
+                      </a>
+                    </div>
+                  </GlassCard>
+
+                  <GlassCard>
+                    <h2 className="mb-4 text-xl font-semibold">Operations Alerts</h2>
+                    <Alert
+                      title="Database storage enabled"
+                      text="New events, contractors, assignments, and clock-ins now save in Supabase."
+                      tone="green"
+                    />
+                    <Alert
+                      title="Location-based clock-in enabled"
+                      text="Contractors must allow location access and be within the event radius."
+                      tone="green"
+                    />
+                    <Alert
+                      title="Payroll approval pending"
+                      text="Approve hours before invoice export."
+                      tone="red"
+                    />
+                  </GlassCard>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "schedule" && (
+              <div className="grid gap-5 lg:grid-cols-3">
+                <div className="space-y-5 lg:col-span-2">
+                  <GlassCard>
+                    <SectionHeader
+                      icon={<CalendarDays className="h-6 w-6" />}
+                      title="Editable Event Schedule"
+                      subtitle="Edit or delete event details, Google Maps address, GPS coordinates, and geofence radius."
+                    />
+                    <div className="grid gap-4">
+                      {events.map((event) => (
+                        <EditableEventCard
+                          key={event.id}
+                          event={event}
+                          isEditing={editingEventId === event.id}
+                          onEdit={() => setEditingEventId(event.id)}
+                          onCancel={() => setEditingEventId(null)}
+                          onSave={() => setEditingEventId(null)}
+                          onDelete={() => deleteEvent(event.id)}
+                          onChange={(field, value) => updateEvent(event.id, field, value)}
+                        />
+                      ))}
+                    </div>
+                  </GlassCard>
+
+                  <GlassCard>
+                    <SectionHeader
+                      icon={<ClipboardCheck className="h-6 w-6" />}
+                      title="Editable Crew Assignments"
+                      subtitle="Edit event, contractor, position, date, call time, clock times, break, pay rate, and rate type."
+                    />
+                    <div className="grid gap-4">
+                      {rows.map((row) => (
+                        <EditableAssignmentCard
+                          key={row.id}
+                          row={row}
+                          events={events}
+                          contractors={contractors}
+                          isEditing={editingAssignmentId === row.id}
+                          onEdit={() => setEditingAssignmentId(row.id)}
+                          onCancel={() => setEditingAssignmentId(null)}
+                          onSave={() => setEditingAssignmentId(null)}
+                          onDelete={() => deleteAssignment(row.id)}
+                          onChange={(field, value) =>
+                            updateAssignment(row.id, field, value)
+                          }
+                        />
+                      ))}
+                    </div>
+                  </GlassCard>
+
+                  <GlassCard>
+                    <SectionHeader
+                      icon={<UserPlus className="h-6 w-6" />}
+                      title="Add Crew Assignment"
+                      subtitle="Create a new crew position for any event."
+                    />
+
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <Select
+                        label="Event"
+                        value={newAssignment.eventId}
+                        onChange={(v) =>
+                          setNewAssignment({
+                            ...newAssignment,
+                            eventId: Number(v),
+                          })
+                        }
+                        options={events.map((e) => ({
+                          value: e.id,
+                          label: e.name,
+                        }))}
+                      />
+
+                      <Select
+                        label="Contractor"
+                        value={newAssignment.contractorId}
+                        onChange={(v) =>
+                          setNewAssignment({
+                            ...newAssignment,
+                            contractorId: Number(v),
+                          })
+                        }
+                        options={contractors.map((c) => ({
+                          value: c.id,
+                          label: c.name,
+                        }))}
+                      />
+
+                      <Input
+                        label="Position"
+                        value={newAssignment.position}
+                        onChange={(v) =>
+                          setNewAssignment({ ...newAssignment, position: v })
+                        }
+                      />
+
+                      <Input
+                        label="Single Work Date"
+                        type="date"
+                        value={newAssignment.workDate}
+                        onChange={(v) =>
+                          setNewAssignment({ ...newAssignment, workDate: v })
+                        }
+                      />
+
+                      <Input
+                        label="Call Time"
+                        type="time"
+                        value={newAssignment.callTime}
+                        onChange={(v) =>
+                          setNewAssignment({ ...newAssignment, callTime: v })
+                        }
+                      />
+
+                      <Input
+                        label="Rate"
+                        type="number"
+                        value={newAssignment.rate}
+                        onChange={(v) =>
+                          setNewAssignment({ ...newAssignment, rate: v })
+                        }
+                      />
+
+                      <div className="md:col-span-3">
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+                            Multiple Work Dates
+                          </span>
+                          <textarea
+                            value={newAssignment.workDates}
+                            onChange={(e) =>
+                              setNewAssignment({
+                                ...newAssignment,
+                                workDates: e.target.value,
+                              })
+                            }
+                            placeholder={`Optional: enter multiple dates, one per line or comma separated\n2026-05-11\n2026-05-12\n2026-05-17`}
+                            className="min-h-[120px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60"
+                          />
+                        </label>
+                        <p className="mt-2 text-xs text-zinc-500">
+                          Use this when a contractor is working multiple days on the same
+                          event.
+                        </p>
+                      </div>
+
+                      <Select
+                        label="Rate Type"
+                        value={newAssignment.rateType}
+                        onChange={(v) =>
+                          setNewAssignment({
+                            ...newAssignment,
+                            rateType: v as "day" | "hour",
+                          })
+                        }
+                        options={[
+                          { value: "day", label: "Day Rate" },
+                          { value: "hour", label: "Hourly" },
+                        ]}
+                      />
+                    </div>
+
+                    <div className="mt-4 flex justify-end">
+                      <GoldButton onClick={addAssignment}>
+                        <UserPlus className="h-4 w-4" />
+                        Add Crew Assignment
+                      </GoldButton>
+                    </div>
+                  </GlassCard>
+                </div>
+
+                <GlassCard>
+                  <SectionHeader
+                    icon={<Plus className="h-6 w-6" />}
+                    title="Create Event"
+                    subtitle="Add address, coordinates, and radius for map/geofence features."
+                  />
+
+                  <div className="space-y-3">
+                    <Input
+                      label="Event Name"
+                      value={newEvent.name}
+                      onChange={(v) => setNewEvent({ ...newEvent, name: v })}
+                    />
+                    <Input
+                      label="Client"
+                      value={newEvent.client}
+                      onChange={(v) => setNewEvent({ ...newEvent, client: v })}
+                    />
+                    <Input
+                      label="Venue"
+                      value={newEvent.venue}
+                      onChange={(v) => setNewEvent({ ...newEvent, venue: v })}
+                    />
+                    <Input
+                      label="Address for Google Maps"
+                      value={newEvent.address}
+                      onChange={(v) => setNewEvent({ ...newEvent, address: v })}
+                    />
+                    <Input
+                      label="Latitude"
+                      value={newEvent.latitude}
+                      onChange={(v) => setNewEvent({ ...newEvent, latitude: v })}
+                    />
+                    <Input
+                      label="Longitude"
+                      value={newEvent.longitude}
+                      onChange={(v) => setNewEvent({ ...newEvent, longitude: v })}
+                    />
+                    <Input
+                      label="Allowed Clock-In Radius Feet"
+                      type="number"
+                      value={newEvent.geofenceRadiusFeet}
+                      onChange={(v) =>
+                        setNewEvent({ ...newEvent, geofenceRadiusFeet: v })
+                      }
+                    />
+                    <Input
+                      label="Start Date"
+                      type="date"
+                      value={newEvent.startDate}
+                      onChange={(v) => setNewEvent({ ...newEvent, startDate: v })}
+                    />
+                    <Input
+                      label="End Date"
+                      type="date"
+                      value={newEvent.endDate}
+                      onChange={(v) => setNewEvent({ ...newEvent, endDate: v })}
+                    />
+                    <textarea
+                      className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60"
+                      placeholder="Event notes"
+                      value={newEvent.notes}
+                      onChange={(e) =>
+                        setNewEvent({ ...newEvent, notes: e.target.value })
+                      }
+                    />
+                    <GoldButton onClick={addEvent}>
+                      <Plus className="h-4 w-4" />
+                      Create Event
+                    </GoldButton>
+                  </div>
+                </GlassCard>
+              </div>
+            )}
+
+            {activeTab === "crew" && (
+              <div className="grid gap-5 lg:grid-cols-3">
+                <div className="lg:col-span-2">
+                  <GlassCard>
+                    <SectionHeader
+                      icon={<Users className="h-6 w-6" />}
+                      title="Editable Crew Roster"
+                      subtitle="Edit contractor profile, rate, and skills."
+                    />
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {contractors.map((contractor) => (
+                        <EditableContractorCard
+                          key={contractor.id}
+                          contractor={contractor}
+                          isEditing={editingContractorId === contractor.id}
+                          onEdit={() => setEditingContractorId(contractor.id)}
+                          onCancel={() => setEditingContractorId(null)}
+                          onSave={() => setEditingContractorId(null)}
+                          onDelete={() => deleteContractor(contractor.id)}
+                          onChange={(field, value) =>
+                            updateContractor(contractor.id, field, value)
+                          }
+                        />
+                      ))}
+                    </div>
+                  </GlassCard>
+                </div>
+
+                <GlassCard>
+                  <SectionHeader
+                    icon={<UserPlus className="h-6 w-6" />}
+                    title="Add Contractor"
+                    subtitle="Save full contractor profile, required contact info, and abilities."
+                  />
+                  <div className="space-y-3">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Input
+                        label="First Name *"
+                        value={newContractor.firstName}
+                        onChange={(v) =>
+                          setNewContractor({ ...newContractor, firstName: v })
+                        }
+                      />
+                      <Input
+                        label="Last Name *"
+                        value={newContractor.lastName}
+                        onChange={(v) =>
+                          setNewContractor({ ...newContractor, lastName: v })
+                        }
+                      />
+                    </div>
+
+                    <Input
+                      label="Primary Role"
+                      value={newContractor.role}
+                      onChange={(v) =>
+                        setNewContractor({ ...newContractor, role: v })
+                      }
+                    />
+                    <Input
+                      label="Phone *"
+                      value={newContractor.phone}
+                      onChange={(v) =>
+                        setNewContractor({ ...newContractor, phone: v })
+                      }
+                    />
+                    <Input
+                      label="Email *"
+                      value={newContractor.email}
+                      onChange={(v) =>
+                        setNewContractor({ ...newContractor, email: v })
+                      }
+                    />
+                    <Input
+                      label="Company"
+                      value={newContractor.company}
+                      onChange={(v) =>
+                        setNewContractor({ ...newContractor, company: v })
+                      }
+                    />
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Input
+                        label="City"
+                        value={newContractor.city}
+                        onChange={(v) =>
+                          setNewContractor({ ...newContractor, city: v })
+                        }
+                      />
+                      <Input
+                        label="State"
+                        value={newContractor.state}
+                        onChange={(v) =>
+                          setNewContractor({ ...newContractor, state: v })
+                        }
+                      />
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Input
+                        label="Emergency Contact Name"
+                        value={newContractor.emergencyContactName}
+                        onChange={(v) =>
+                          setNewContractor({
+                            ...newContractor,
+                            emergencyContactName: v,
+                          })
+                        }
+                      />
+                      <Input
+                        label="Emergency Contact Phone"
+                        value={newContractor.emergencyContactPhone}
+                        onChange={(v) =>
+                          setNewContractor({
+                            ...newContractor,
+                            emergencyContactPhone: v,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+                        Skills / Abilities
+                      </span>
+                      <textarea
+                        value={newContractor.skillsText}
+                        onChange={(e) =>
+                          setNewContractor({
+                            ...newContractor,
+                            skillsText: e.target.value,
+                          })
+                        }
+                        placeholder={`Examples:\nA1, A2, V1, V2, L1, L2, Stagehand, LED Tech, Playback, RF Tech`}
+                        className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+                        Notes
+                      </span>
+                      <textarea
+                        value={newContractor.notes}
+                        onChange={(e) =>
+                          setNewContractor({
+                            ...newContractor,
+                            notes: e.target.value,
+                          })
+                        }
+                        className="min-h-[90px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none"
+                      />
+                    </label>
+
+                    <Input
+                      label="Default Rate"
+                      type="number"
+                      value={newContractor.rate}
+                      onChange={(v) =>
+                        setNewContractor({ ...newContractor, rate: v })
+                      }
+                    />
+
+                    <Select
+                      label="Rate Type"
+                      value={newContractor.rateType}
+                      onChange={(v) =>
+                        setNewContractor({
+                          ...newContractor,
+                          rateType: v as "day" | "hour",
+                        })
+                      }
+                      options={[
+                        { value: "day", label: "Day Rate" },
+                        { value: "hour", label: "Hourly" },
+                      ]}
+                    />
+
+                    <GoldButton onClick={addContractor}>
+                      <UserPlus className="h-4 w-4" />
+                      Save Contractor
+                    </GoldButton>
+                  </div>
+                </GlassCard>
+              </div>
+            )}
+
+            {activeTab === "payroll" && (
+              <GlassCard>
+                <SectionHeader
+                  icon={<DollarSign className="h-6 w-6" />}
+                  title="Payroll Approval"
+                  subtitle="Review, edit, approve, mark paid, or delete assignment pay."
+                />
+                <div className="mb-5 grid gap-4 md:grid-cols-3">
+                  <Metric icon={<Clock className="h-5 w-5" />} label="Clocked Labor" value={money(payrollTotal)} />
+                  <Metric icon={<CheckCircle2 className="h-5 w-5" />} label="Approved" value={money(approvedPayroll)} />
+                  <Metric icon={<AlertTriangle className="h-5 w-5" />} label="Pending Items" value={pendingCount.toString()} />
+                </div>
+
                 <div className="grid gap-4">
                   {rows.map((row) => (
                     <EditableAssignmentCard
@@ -1035,685 +1703,284 @@ export default function LuxonOpsDashboard() {
                       onCancel={() => setEditingAssignmentId(null)}
                       onSave={() => setEditingAssignmentId(null)}
                       onDelete={() => deleteAssignment(row.id)}
-                      onChange={(field, value) => updateAssignment(row.id, field, value)}
-                    />
-                  ))}
-                </div>
-              </GlassCard>
-
-              <GlassCard>
-                <SectionHeader
-                  icon={<UserPlus className="h-6 w-6" />}
-                  title="Add Crew Assignment"
-                  subtitle="Create a new crew position for any event."
-                />
-                <div className="grid gap-3 md:grid-cols-3">
-                  <Select
-                    label="Event"
-                    value={newAssignment.eventId}
-                    onChange={(v) =>
-                      setNewAssignment({ ...newAssignment, eventId: Number(v) })
-                    }
-                    options={events.map((e) => ({ value: e.id, label: e.name }))}
-                  />
-                  <Select
-                    label="Contractor"
-                    value={newAssignment.contractorId}
-                    onChange={(v) =>
-                      setNewAssignment({
-                        ...newAssignment,
-                        contractorId: Number(v),
-                      })
-                    }
-                    options={contractors.map((c) => ({
-                      value: c.id,
-                      label: c.name,
-                    }))}
-                  />
-                  <Input
-                    label="Position"
-                    value={newAssignment.position}
-                    onChange={(v) =>
-                      setNewAssignment({ ...newAssignment, position: v })
-                    }
-                  />
-                  <Input
-                    label="Single Work Date"
-                    type="date"
-                    value={newAssignment.workDate}
-                    onChange={(v) =>
-                      setNewAssignment({ ...newAssignment, workDate: v })
-                    }
-                  />
-                  <Input
-                    label="Call Time"
-                    type="time"
-                    value={newAssignment.callTime}
-                    onChange={(v) =>
-                      setNewAssignment({ ...newAssignment, callTime: v })
-                    }
-                  />
-                  <Input
-                    label="Rate"
-                    type="number"
-                    value={newAssignment.rate}
-                    onChange={(v) =>
-                      setNewAssignment({ ...newAssignment, rate: v })
-                    }
-                  />
-
-                  <div className="md:col-span-3">
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
-                        Multiple Work Dates
-                      </span>
-                      <textarea
-                        value={newAssignment.workDates}
-                        onChange={(e) =>
-                          setNewAssignment({
-                            ...newAssignment,
-                            workDates: e.target.value,
-                          })
-                        }
-                        placeholder={`Optional: enter multiple dates, one per line or comma separated\n2026-05-11\n2026-05-12\n2026-05-17`}
-                        className="min-h-[120px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60"
-                      />
-                    </label>
-                    <p className="mt-2 text-xs text-zinc-500">
-                      Use this when a contractor is working multiple days on the same event.
-                      The app will create one assignment per date so communication stays clear.
-                    </p>
-                  </div>
-
-                  <Select
-                    label="Rate Type"
-                    value={newAssignment.rateType}
-                    onChange={(v) =>
-                      setNewAssignment({
-                        ...newAssignment,
-                        rateType: v as "day" | "hour",
-                      })
-                    }
-                    options={[
-                      { value: "day", label: "Day Rate" },
-                      { value: "hour", label: "Hourly" },
-                    ]}
-                  />
-                </div>
-
-                <div className="mt-4 flex justify-end">
-                  <GoldButton onClick={addAssignment}>
-                    <UserPlus className="h-4 w-4" />
-                    Add Crew Assignment
-                  </GoldButton>
-                </div>
-              </GlassCard>
-            </div>
-
-            <GlassCard>
-              <SectionHeader
-                icon={<Plus className="h-6 w-6" />}
-                title="Create Event"
-                subtitle="Add address, coordinates, and radius for map/geofence features."
-              />
-              <div className="space-y-3">
-                <Input
-                  label="Event Name"
-                  value={newEvent.name}
-                  onChange={(v) => setNewEvent({ ...newEvent, name: v })}
-                />
-                <Input
-                  label="Client"
-                  value={newEvent.client}
-                  onChange={(v) => setNewEvent({ ...newEvent, client: v })}
-                />
-                <Input
-                  label="Venue"
-                  value={newEvent.venue}
-                  onChange={(v) => setNewEvent({ ...newEvent, venue: v })}
-                />
-                <Input
-                  label="Address for Google Maps"
-                  value={newEvent.address}
-                  onChange={(v) => setNewEvent({ ...newEvent, address: v })}
-                />
-                <Input
-                  label="Latitude"
-                  value={newEvent.latitude}
-                  onChange={(v) => setNewEvent({ ...newEvent, latitude: v })}
-                />
-                <Input
-                  label="Longitude"
-                  value={newEvent.longitude}
-                  onChange={(v) => setNewEvent({ ...newEvent, longitude: v })}
-                />
-                <Input
-                  label="Allowed Clock-In Radius Feet"
-                  type="number"
-                  value={newEvent.geofenceRadiusFeet}
-                  onChange={(v) =>
-                    setNewEvent({ ...newEvent, geofenceRadiusFeet: v })
-                  }
-                />
-                <Input
-                  label="Start Date"
-                  type="date"
-                  value={newEvent.startDate}
-                  onChange={(v) => setNewEvent({ ...newEvent, startDate: v })}
-                />
-                <Input
-                  label="End Date"
-                  type="date"
-                  value={newEvent.endDate}
-                  onChange={(v) => setNewEvent({ ...newEvent, endDate: v })}
-                />
-                <textarea
-                  className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60"
-                  placeholder="Event notes"
-                  value={newEvent.notes}
-                  onChange={(e) =>
-                    setNewEvent({ ...newEvent, notes: e.target.value })
-                  }
-                />
-                <GoldButton onClick={addEvent}>
-                  <Plus className="h-4 w-4" />
-                  Create Event
-                </GoldButton>
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {activeTab === "crew" && (
-          <div className="grid gap-5 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <GlassCard>
-                <SectionHeader
-                  icon={<Users className="h-6 w-6" />}
-                  title="Editable Crew Roster"
-                  subtitle="Edit contractor profile, contact details, rate, and abilities."
-                />
-                <div className="grid gap-4 md:grid-cols-2">
-                  {contractors.map((contractor) => (
-                    <EditableContractorCard
-                      key={contractor.id}
-                      contractor={contractor}
-                      isEditing={editingContractorId === contractor.id}
-                      onEdit={() => setEditingContractorId(contractor.id)}
-                      onCancel={() => setEditingContractorId(null)}
-                      onSave={() => setEditingContractorId(null)}
-                      onDelete={() => deleteContractor(contractor.id)}
                       onChange={(field, value) =>
-                        updateContractor(contractor.id, field, value)
+                        updateAssignment(row.id, field, value)
                       }
+                      showPayrollActions
+                      onToggle={toggleAssignment}
                     />
                   ))}
                 </div>
               </GlassCard>
-            </div>
+            )}
 
-            <GlassCard>
-              <SectionHeader
-                icon={<UserPlus className="h-6 w-6" />}
-                title="Add Contractor"
-                subtitle="Save full contractor profile, required contact info, and abilities."
-              />
-              <div className="space-y-3">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Input
-                    label="First Name *"
-                    value={newContractor.firstName}
-                    onChange={(v) =>
-                      setNewContractor({ ...newContractor, firstName: v })
-                    }
+            {activeTab === "invoices" && (
+              <div className="grid gap-5 lg:grid-cols-3">
+                <GlassCard>
+                  <SectionHeader
+                    icon={<FileText className="h-6 w-6" />}
+                    title="Contractor Invoice Builder"
+                    subtitle="Creates one invoice per contractor using only approved tracked hours."
                   />
-                  <Input
-                    label="Last Name *"
-                    value={newContractor.lastName}
-                    onChange={(v) =>
-                      setNewContractor({ ...newContractor, lastName: v })
-                    }
-                  />
-                </div>
 
-                <Input
-                  label="Primary Role"
-                  value={newContractor.role}
-                  onChange={(v) =>
-                    setNewContractor({ ...newContractor, role: v })
-                  }
-                />
-                <Input
-                  label="Phone *"
-                  value={newContractor.phone}
-                  onChange={(v) =>
-                    setNewContractor({ ...newContractor, phone: v })
-                  }
-                />
-                <Input
-                  label="Email *"
-                  value={newContractor.email}
-                  onChange={(v) =>
-                    setNewContractor({ ...newContractor, email: v })
-                  }
-                />
-                <Input
-                  label="Company"
-                  value={newContractor.company}
-                  onChange={(v) =>
-                    setNewContractor({ ...newContractor, company: v })
-                  }
-                />
+                  <div className="space-y-4">
+                    <Select
+                      label="Select Event"
+                      value={selectedEventId}
+                      onChange={(v) => setSelectedEventId(Number(v))}
+                      options={events.map((e) => ({
+                        value: e.id,
+                        label: e.name,
+                      }))}
+                    />
+                    <Select
+                      label="Select Contractor"
+                      value={selectedInvoiceContractorId}
+                      onChange={(v) =>
+                        setSelectedInvoiceContractorId(Number(v))
+                      }
+                      options={contractors.map((c) => ({
+                        value: c.id,
+                        label: c.name,
+                      }))}
+                    />
 
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Input
-                    label="City"
-                    value={newContractor.city}
-                    onChange={(v) =>
-                      setNewContractor({ ...newContractor, city: v })
-                    }
-                  />
-                  <Input
-                    label="State"
-                    value={newContractor.state}
-                    onChange={(v) =>
-                      setNewContractor({ ...newContractor, state: v })
-                    }
-                  />
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Input
-                    label="Emergency Contact Name"
-                    value={newContractor.emergencyContactName}
-                    onChange={(v) =>
-                      setNewContractor({
-                        ...newContractor,
-                        emergencyContactName: v,
-                      })
-                    }
-                  />
-                  <Input
-                    label="Emergency Contact Phone"
-                    value={newContractor.emergencyContactPhone}
-                    onChange={(v) =>
-                      setNewContractor({
-                        ...newContractor,
-                        emergencyContactPhone: v,
-                      })
-                    }
-                  />
-                </div>
-
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Skills / Abilities
-                  </span>
-                  <textarea
-                    value={newContractor.skillsText}
-                    onChange={(e) =>
-                      setNewContractor({
-                        ...newContractor,
-                        skillsText: e.target.value,
-                      })
-                    }
-                    placeholder={`Examples:\nA1, A2, V1, V2, L1, L2, Stagehand, LED Tech, Playback, RF Tech`}
-                    className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400/60"
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Notes
-                  </span>
-                  <textarea
-                    value={newContractor.notes}
-                    onChange={(e) =>
-                      setNewContractor({ ...newContractor, notes: e.target.value })
-                    }
-                    className="min-h-[90px] w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none"
-                  />
-                </label>
-
-                <Input
-                  label="Default Rate"
-                  type="number"
-                  value={newContractor.rate}
-                  onChange={(v) =>
-                    setNewContractor({ ...newContractor, rate: v })
-                  }
-                />
-
-                <Select
-                  label="Rate Type"
-                  value={newContractor.rateType}
-                  onChange={(v) =>
-                    setNewContractor({
-                      ...newContractor,
-                      rateType: v as "day" | "hour",
-                    })
-                  }
-                  options={[
-                    { value: "day", label: "Day Rate" },
-                    { value: "hour", label: "Hourly" },
-                  ]}
-                />
-
-                <GoldButton onClick={addContractor}>
-                  <UserPlus className="h-4 w-4" />
-                  Save Contractor
-                </GoldButton>
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {activeTab === "payroll" && (
-          <GlassCard>
-            <SectionHeader
-              icon={<DollarSign className="h-6 w-6" />}
-              title="Payroll Approval"
-              subtitle="Review, edit, approve, mark paid, or delete assignment pay."
-            />
-            <div className="mb-5 grid gap-4 md:grid-cols-3">
-              <Metric icon={<Clock className="h-5 w-5" />} label="Clocked Labor" value={money(payrollTotal)} />
-              <Metric icon={<CheckCircle2 className="h-5 w-5" />} label="Approved" value={money(approvedPayroll)} />
-              <Metric icon={<AlertTriangle className="h-5 w-5" />} label="Pending Items" value={pendingCount.toString()} />
-            </div>
-
-            <div className="grid gap-4">
-              {rows.map((row) => (
-                <EditableAssignmentCard
-                  key={row.id}
-                  row={row}
-                  events={events}
-                  contractors={contractors}
-                  isEditing={editingAssignmentId === row.id}
-                  onEdit={() => setEditingAssignmentId(row.id)}
-                  onCancel={() => setEditingAssignmentId(null)}
-                  onSave={() => setEditingAssignmentId(null)}
-                  onDelete={() => deleteAssignment(row.id)}
-                  onChange={(field, value) => updateAssignment(row.id, field, value)}
-                  showPayrollActions
-                  onToggle={toggleAssignment}
-                />
-              ))}
-            </div>
-          </GlassCard>
-        )}
-
-        {activeTab === "invoices" && (
-          <div className="grid gap-5 lg:grid-cols-3">
-            <GlassCard>
-              <SectionHeader
-                icon={<FileText className="h-6 w-6" />}
-                title="Contractor Invoice Builder"
-                subtitle="Creates one invoice per contractor using only approved tracked hours."
-              />
-              <div className="space-y-4">
-                <Select
-                  label="Select Event"
-                  value={selectedEventId}
-                  onChange={(v) => setSelectedEventId(Number(v))}
-                  options={events.map((e) => ({ value: e.id, label: e.name }))}
-                />
-                <Select
-                  label="Select Contractor"
-                  value={selectedInvoiceContractorId}
-                  onChange={(v) => setSelectedInvoiceContractorId(Number(v))}
-                  options={contractors.map((c) => ({
-                    value: c.id,
-                    label: c.name,
-                  }))}
-                />
-                <div className="rounded-3xl border border-emerald-400/20 bg-emerald-400/10 p-4">
-                  <p className="text-sm text-emerald-100">Approved invoice total</p>
-                  <p className="text-3xl font-bold text-emerald-300">
-                    {money(invoiceTotal)}
-                  </p>
-                  <p className="mt-2 text-xs text-emerald-100/80">
-                    Only approved hours are included. Pending or unapproved time is excluded.
-                  </p>
-                </div>
-                <div className="rounded-3xl border border-white/10 bg-black/25 p-4 text-sm text-zinc-300">
-                  <p>
-                    Regular / tracked hours:{" "}
-                    <span className="font-bold text-white">
-                      {invoiceRegularHours.toFixed(2)}
-                    </span>
-                  </p>
-                  <p>
-                    Overtime hours:{" "}
-                    <span className="font-bold text-amber-300">
-                      {invoiceOvertimeHours.toFixed(2)}
-                    </span>
-                  </p>
-                  <p className="mt-2 text-xs text-zinc-500">
-                    Hourly overtime is calculated after 8 tracked hours per assignment at 1.5x.
-                    Day-rate assignments are billed at the approved day rate.
-                  </p>
-                </div>
-                <GoldButton onClick={exportContractorInvoicePdf}>
-                  <Download className="h-4 w-4" />
-                  Export Contractor Invoice PDF
-                </GoldButton>
-              </div>
-            </GlassCard>
-
-            <div className="lg:col-span-2">
-              <GlassCard>
-                <SectionHeader
-                  icon={<FileText className="h-6 w-6" />}
-                  title="Invoice Preview"
-                  subtitle="This invoice is contractor-specific and payable by Luxon Entertainment LLC."
-                />
-
-                <div
-                  id="printable-invoice"
-                  className="rounded-3xl border border-white/10 bg-white p-6 text-sm leading-7 text-slate-900"
-                >
-                  <div className="mb-8 flex items-start justify-between border-b border-slate-200 pb-6">
-                    <div>
-                      <p className="text-2xl font-bold text-slate-950">
-                        Luxon Entertainment LLC
+                    <div className="rounded-3xl border border-emerald-400/20 bg-emerald-400/10 p-4">
+                      <p className="text-sm text-emerald-100">
+                        Approved invoice total
                       </p>
-                      <p className="text-slate-500">
-                        Contractor Invoice Approval Record
+                      <p className="text-3xl font-bold text-emerald-300">
+                        {money(invoiceTotal)}
                       </p>
-                      <p className="mt-3 text-xs uppercase tracking-wider text-slate-400">
-                        Bill To
+                      <p className="mt-2 text-xs text-emerald-100/80">
+                        Only approved hours are included.
                       </p>
-                      <p className="font-semibold">Luxon Entertainment LLC</p>
                     </div>
 
-                    <div className="text-right">
-                      <p className="text-4xl font-bold text-slate-950">INVOICE</p>
-                      <p className="mt-2 text-slate-500">
-                        Invoice #: AUTO-{selectedEventId}-{selectedInvoiceContractorId}
-                      </p>
-                      <p className="text-slate-500">
-                        Date: {new Date().toLocaleDateString("en-US")}
-                      </p>
-                      <p className="text-slate-500">Terms: Net 30</p>
-                    </div>
-                  </div>
-
-                  <div className="mb-6 grid gap-4 md:grid-cols-2">
-                    <div className="rounded-2xl border border-slate-200 p-4">
-                      <p className="text-xs uppercase tracking-wider text-slate-400">
-                        Contractor
-                      </p>
-                      <p className="text-lg font-bold">
-                        {selectedInvoiceContractor?.name || "Select contractor"}
-                      </p>
-                      <p>{selectedInvoiceContractor?.role || ""}</p>
-                      <p>{selectedInvoiceContractor?.email || ""}</p>
-                      <p>{selectedInvoiceContractor?.phone || ""}</p>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200 p-4">
-                      <p className="text-xs uppercase tracking-wider text-slate-400">
-                        Event
-                      </p>
-                      <p className="text-lg font-bold">{selectedEvent?.name}</p>
-                      <p>{selectedEvent?.client}</p>
-                      <p>{selectedEvent?.venue}</p>
-                      <p>{selectedEvent?.address}</p>
+                    <div className="rounded-3xl border border-white/10 bg-black/25 p-4 text-sm text-zinc-300">
                       <p>
-                        {dateLabel(selectedEvent?.startDate || "")} -{" "}
-                        {dateLabel(selectedEvent?.endDate || "")}
+                        Regular / tracked hours:{" "}
+                        <span className="font-bold text-white">
+                          {invoiceRegularHours.toFixed(2)}
+                        </span>
+                      </p>
+                      <p>
+                        Overtime hours:{" "}
+                        <span className="font-bold text-amber-300">
+                          {invoiceOvertimeHours.toFixed(2)}
+                        </span>
                       </p>
                     </div>
-                  </div>
 
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-300 bg-slate-100">
-                          <th className="p-3">Date</th>
-                          <th className="p-3">Description</th>
-                          <th className="p-3">Clocked Time</th>
-                          <th className="p-3">Reg Hrs</th>
-                          <th className="p-3">OT Hrs</th>
-                          <th className="p-3">Rate</th>
-                          <th className="p-3 text-right">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {contractorInvoiceLines.length === 0 && (
-                          <tr>
-                            <td className="p-3" colSpan={7}>
-                              No approved hours found for this contractor on this event.
-                            </td>
-                          </tr>
-                        )}
-                        {contractorInvoiceLines.map((row) => (
-                          <tr key={row.id} className="border-b border-slate-200">
-                            <td className="p-3">{dateLabel(row.workDate)}</td>
-                            <td className="p-3">
-                              {row.position}
-                              <br />
-                              <span className="text-xs text-slate-500">
-                                Approved by management: {row.approved ? "Yes" : "No"}
-                              </span>
-                            </td>
-                            <td className="p-3">
-                              {row.clockIn || "--"} - {row.clockOut || "--"}
-                              <br />
-                              <span className="text-xs text-slate-500">
-                                Break: {row.breakHours} hr
-                              </span>
-                            </td>
-                            <td className="p-3">{row.regularHours.toFixed(2)}</td>
-                            <td className="p-3">{row.overtimeHours.toFixed(2)}</td>
-                            <td className="p-3">
-                              {money(row.rate)} / {row.rateType}
-                            </td>
-                            <td className="p-3 text-right font-semibold">
-                              {money(row.invoiceTotal)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <GoldButton onClick={exportContractorInvoicePdf}>
+                      <Download className="h-4 w-4" />
+                      Export Contractor Invoice PDF
+                    </GoldButton>
                   </div>
+                </GlassCard>
 
-                  <div className="mt-8 flex justify-end">
-                    <div className="w-full max-w-sm space-y-2 rounded-2xl bg-slate-100 p-5">
-                      <div className="flex justify-between">
-                        <span>Regular / Approved Hours</span>
-                        <span>{invoiceRegularHours.toFixed(2)}</span>
+                <div className="lg:col-span-2">
+                  <GlassCard>
+                    <SectionHeader
+                      icon={<FileText className="h-6 w-6" />}
+                      title="Invoice Preview"
+                      subtitle="Contractor-specific invoice."
+                    />
+
+                    <div
+                      id="printable-invoice"
+                      className="rounded-3xl border border-white/10 bg-white p-6 text-sm leading-7 text-slate-900"
+                    >
+                      <div className="mb-8 flex items-start justify-between border-b border-slate-200 pb-6">
+                        <div>
+                          <p className="text-2xl font-bold text-slate-950">
+                            Luxon Entertainment LLC
+                          </p>
+                          <p className="text-slate-500">
+                            Contractor Invoice Approval Record
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-4xl font-bold text-slate-950">
+                            INVOICE
+                          </p>
+                          <p className="mt-2 text-slate-500">
+                            Invoice #: AUTO-{selectedEventId}-
+                            {selectedInvoiceContractorId}
+                          </p>
+                          <p className="text-slate-500">
+                            Date: {new Date().toLocaleDateString("en-US")}
+                          </p>
+                          <p className="text-slate-500">Terms: Net 30</p>
+                        </div>
                       </div>
-                      <div className="flex justify-between">
-                        <span>Overtime Hours</span>
-                        <span>{invoiceOvertimeHours.toFixed(2)}</span>
+
+                      <div className="mb-6 grid gap-4 md:grid-cols-2">
+                        <div className="rounded-2xl border border-slate-200 p-4">
+                          <p className="text-xs uppercase tracking-wider text-slate-400">
+                            Contractor
+                          </p>
+                          <p className="text-lg font-bold">
+                            {selectedInvoiceContractor?.name || "Select contractor"}
+                          </p>
+                          <p>{selectedInvoiceContractor?.role || ""}</p>
+                          <p>{selectedInvoiceContractor?.email || ""}</p>
+                          <p>{selectedInvoiceContractor?.phone || ""}</p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 p-4">
+                          <p className="text-xs uppercase tracking-wider text-slate-400">
+                            Event
+                          </p>
+                          <p className="text-lg font-bold">
+                            {selectedEvent?.name}
+                          </p>
+                          <p>{selectedEvent?.client}</p>
+                          <p>{selectedEvent?.venue}</p>
+                          <p>{selectedEvent?.address}</p>
+                          <p>
+                            {dateLabel(selectedEvent?.startDate || "")} -{" "}
+                            {dateLabel(selectedEvent?.endDate || "")}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex justify-between border-t border-slate-300 pt-3 text-xl font-bold">
-                        <span>Total Due</span>
-                        <span>{money(invoiceTotal)}</span>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-left text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-300 bg-slate-100">
+                              <th className="p-3">Date</th>
+                              <th className="p-3">Description</th>
+                              <th className="p-3">Clocked Time</th>
+                              <th className="p-3">Reg Hrs</th>
+                              <th className="p-3">OT Hrs</th>
+                              <th className="p-3">Rate</th>
+                              <th className="p-3 text-right">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {contractorInvoiceLines.length === 0 && (
+                              <tr>
+                                <td className="p-3" colSpan={7}>
+                                  No approved hours found for this contractor on
+                                  this event.
+                                </td>
+                              </tr>
+                            )}
+                            {contractorInvoiceLines.map((row) => (
+                              <tr
+                                key={row.id}
+                                className="border-b border-slate-200"
+                              >
+                                <td className="p-3">{dateLabel(row.workDate)}</td>
+                                <td className="p-3">{row.position}</td>
+                                <td className="p-3">
+                                  {row.clockIn || "--"} - {row.clockOut || "--"}
+                                </td>
+                                <td className="p-3">
+                                  {row.regularHours.toFixed(2)}
+                                </td>
+                                <td className="p-3">
+                                  {row.overtimeHours.toFixed(2)}
+                                </td>
+                                <td className="p-3">
+                                  {money(row.rate)} / {row.rateType}
+                                </td>
+                                <td className="p-3 text-right font-semibold">
+                                  {money(row.invoiceTotal)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="mt-8 flex justify-end">
+                        <div className="w-full max-w-sm space-y-2 rounded-2xl bg-slate-100 p-5">
+                          <div className="flex justify-between">
+                            <span>Regular / Approved Hours</span>
+                            <span>{invoiceRegularHours.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Overtime Hours</span>
+                            <span>{invoiceOvertimeHours.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between border-t border-slate-300 pt-3 text-xl font-bold">
+                            <span>Total Due</span>
+                            <span>{money(invoiceTotal)}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-
-                  <div className="mt-8 rounded-2xl border border-slate-200 p-4 text-xs text-slate-500">
-                    <p className="font-semibold text-slate-700">
-                      System Verification Note
-                    </p>
-                    <p>
-                      This invoice only includes approved assignment records. Pending or
-                      unapproved hours are excluded. Totals are calculated from clock-in/out
-                      records, break deductions, management approval status, configured rate,
-                      and overtime rules.
-                    </p>
-                  </div>
+                  </GlassCard>
                 </div>
-              </GlassCard>
-            </div>
-          </div>
-        )}
+              </div>
+            )}
 
-        {activeTab === "updates" && (
-          <div className="grid gap-5 lg:grid-cols-2">
-            <GlassCard>
-              <SectionHeader
-                icon={<Send className="h-6 w-6" />}
-                title="Crew Confirmation Message"
-                subtitle="Copy and send this to contractors before the event."
-              />
-              <MessageBox
-                text={`You have been added to the Luxon Entertainment roster. Please confirm your position, work date, call time, location, and rate by replying CONFIRMED. If you have any questions, contact Brayan.`}
-              />
-              <GoldButton>
-                <Send className="h-4 w-4" />
-                Send Confirmation
-              </GoldButton>
-            </GlassCard>
+            {activeTab === "updates" && (
+              <div className="grid gap-5 lg:grid-cols-2">
+                <GlassCard>
+                  <SectionHeader
+                    icon={<Send className="h-6 w-6" />}
+                    title="Crew Confirmation Message"
+                    subtitle="Copy and send this to contractors before the event."
+                  />
+                  <MessageBox
+                    text={`You have been added to the Luxon Entertainment roster. Please confirm your position, work date, call time, location, and rate by replying CONFIRMED. If you have any questions, contact Brayan.`}
+                  />
+                  <GoldButton>
+                    <Send className="h-4 w-4" />
+                    Send Confirmation
+                  </GoldButton>
+                </GlassCard>
 
-            <GlassCard>
-              <SectionHeader
-                icon={<AlertTriangle className="h-6 w-6" />}
-                title="Day-Of Crew Update"
-                subtitle="Quick update for outdoor events, call time reminders, and show notes."
-              />
-              <MessageBox
-                text={`Reminder: please arrive on time, dress appropriately for the event, bring water if outside, take your required break, and clock in/out through the Luxon Ops app. Call Brayan if anything changes.`}
-              />
-              <GoldButton>
-                <Send className="h-4 w-4" />
-                Send Day-Of Update
-              </GoldButton>
-            </GlassCard>
+                <GlassCard>
+                  <SectionHeader
+                    icon={<AlertTriangle className="h-6 w-6" />}
+                    title="Day-Of Crew Update"
+                    subtitle="Quick update for outdoor events, call time reminders, and show notes."
+                  />
+                  <MessageBox
+                    text={`Reminder: please arrive on time, dress appropriately for the event, bring water if outside, take your required break, and clock in/out through the Luxon Ops app. Call Brayan if anything changes.`}
+                  />
+                  <GoldButton>
+                    <Send className="h-4 w-4" />
+                    Send Day-Of Update
+                  </GoldButton>
+                </GlassCard>
 
-            <GlassCard>
-              <SectionHeader
-                icon={<Sparkles className="h-6 w-6" />}
-                title="Missing Clock-Out Reminder"
-                subtitle="Use this when someone forgets to clock out."
-              />
-              <MessageBox
-                text={`Hey, please update your clock-out time for today’s Luxon job so payroll can be approved. Thank you.`}
-              />
-              <GoldButton>
-                <Send className="h-4 w-4" />
-                Send Reminder
-              </GoldButton>
-            </GlassCard>
+                <GlassCard>
+                  <SectionHeader
+                    icon={<Sparkles className="h-6 w-6" />}
+                    title="Missing Clock-Out Reminder"
+                    subtitle="Use this when someone forgets to clock out."
+                  />
+                  <MessageBox
+                    text={`Hey, please update your clock-out time for today’s Luxon job so payroll can be approved. Thank you.`}
+                  />
+                  <GoldButton>
+                    <Send className="h-4 w-4" />
+                    Send Reminder
+                  </GoldButton>
+                </GlassCard>
 
-            <GlassCard>
-              <SectionHeader
-                icon={<ClipboardCheck className="h-6 w-6" />}
-                title="Payroll Approved Message"
-                subtitle="Send after hours are reviewed."
-              />
-              <MessageBox
-                text={`Your hours for the recent Luxon event have been reviewed and approved. Payment will be processed according to the agreed terms.`}
-              />
-              <GoldButton>
-                <Send className="h-4 w-4" />
-                Send Payroll Update
-              </GoldButton>
-            </GlassCard>
-          </div>
+                <GlassCard>
+                  <SectionHeader
+                    icon={<ClipboardCheck className="h-6 w-6" />}
+                    title="Payroll Approved Message"
+                    subtitle="Send after hours are reviewed."
+                  />
+                  <MessageBox
+                    text={`Your hours for the recent Luxon event have been reviewed and approved. Payment will be processed according to the agreed terms.`}
+                  />
+                  <GoldButton>
+                    <Send className="h-4 w-4" />
+                    Send Payroll Update
+                  </GoldButton>
+                </GlassCard>
+              </div>
+            )}
+          </>
         )}
       </section>
 
@@ -2189,7 +2456,9 @@ function SectionHeader({
 }) {
   return (
     <div className={`flex items-start gap-3 ${compact ? "" : "mb-5"}`}>
-      <div className="rounded-2xl bg-amber-400/10 p-3 text-amber-300">{icon}</div>
+      <div className="rounded-2xl bg-amber-400/10 p-3 text-amber-300">
+        {icon}
+      </div>
       <div>
         <h2 className="text-2xl font-bold">{title}</h2>
         <p className="text-sm text-zinc-400">{subtitle}</p>
