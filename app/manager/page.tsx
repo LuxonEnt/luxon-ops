@@ -71,7 +71,7 @@ export default function ManagerPage() {
 
       <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
         <p className="text-zinc-300">
-          Manager access verified. Next we can place your full admin dashboard here.
+          Manager access verified.
         </p>
       </div>
     </main>
