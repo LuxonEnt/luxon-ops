@@ -1,7 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  BadgeDollarSign,
+  Briefcase,
+  Building2,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  LogOut,
+  Mail,
+  MapPin,
+  Phone,
+  Save,
+  Sparkles,
+  User,
+  X,
+} from "lucide-react";
 
 type Contractor = {
   id: number;
@@ -49,6 +65,7 @@ type EventItem = {
   address: string | null;
   start_date: string | null;
   end_date: string | null;
+  status?: string | null;
 };
 
 function money(value: number) {
@@ -89,6 +106,19 @@ function hoursBetween(
   let endMins = eh * 60 + em;
   if (endMins < startMins) endMins += 24 * 60;
   return Math.max(0, (endMins - startMins) / 60 - Number(breakHours || 0));
+}
+
+function eventTone(status?: string | null) {
+  switch (status) {
+    case "Completed":
+      return "border-emerald-400/20 bg-emerald-500/10 text-emerald-300";
+    case "In Progress":
+      return "border-amber-400/20 bg-amber-500/10 text-amber-300";
+    case "Cancelled":
+      return "border-red-400/20 bg-red-500/10 text-red-300";
+    default:
+      return "border-white/10 bg-white/[0.04] text-zinc-300";
+  }
 }
 
 export default function ContractorPage() {
@@ -193,6 +223,27 @@ export default function ContractorPage() {
     loadContractorPortal();
   }, []);
 
+  const assignmentRows = useMemo(() => {
+    return assignments.map((row) => {
+      const event = eventsById[row.event_id];
+      const hours = hoursBetween(row.clock_in, row.clock_out, row.break_hours || 0);
+      const total =
+        row.rate_type === "day" ? Number(row.rate || 0) : hours * Number(row.rate || 0);
+
+      return {
+        ...row,
+        event,
+        hours,
+        total,
+      };
+    });
+  }, [assignments, eventsById]);
+
+  const totalTrackedHours = assignmentRows.reduce((sum, row) => sum + row.hours, 0);
+  const approvedJobs = assignmentRows.filter((row) => row.approved).length;
+  const paidJobs = assignmentRows.filter((row) => row.paid).length;
+  const totalEarned = assignmentRows.reduce((sum, row) => sum + row.total, 0);
+
   async function signOut() {
     await supabase.auth.signOut();
     window.location.href = "/login";
@@ -207,7 +258,8 @@ export default function ContractorPage() {
 
       const firstName = profileForm.first_name.trim();
       const lastName = profileForm.last_name.trim();
-      const fullName = `${firstName} ${lastName}`.trim() || contractor.email || "Contractor";
+      const fullName =
+        `${firstName} ${lastName}`.trim() || contractor.email || "Contractor";
 
       const skills = profileForm.skillsText
         .split(/[\n,]+/)
@@ -282,7 +334,7 @@ export default function ContractorPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-black p-8 text-white">
+      <main className="min-h-screen bg-[#050505] p-8 text-white">
         Loading contractor portal...
       </main>
     );
@@ -290,7 +342,7 @@ export default function ContractorPage() {
 
   if (!contractor) {
     return (
-      <main className="min-h-screen bg-black p-8 text-white">
+      <main className="min-h-screen bg-[#050505] p-8 text-white">
         <h1 className="text-4xl font-bold">Contractor Portal</h1>
         <p className="mt-4 text-red-300">
           {message || "No contractor profile found."}
@@ -306,343 +358,494 @@ export default function ContractorPage() {
   }
 
   return (
-    <main className="min-h-screen bg-black p-8 text-white">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-4xl font-bold">Contractor Portal</h1>
-          <p className="mt-2 text-zinc-400">
-            {contractor.name} · {contractor.email || ""}
-          </p>
-        </div>
-
-        <button
-          onClick={signOut}
-          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
-        >
-          Sign Out
-        </button>
+    <main className="min-h-screen bg-[#050505] text-white">
+      <div className="pointer-events-none fixed inset-0">
+        <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-amber-500/10 blur-3xl" />
+        <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-yellow-300/5 blur-3xl" />
       </div>
 
-      {message && (
-        <div className="mb-6 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
-          {message}
-        </div>
-      )}
-
-      <div className="mb-6 grid gap-4 md:grid-cols-3">
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-          <div className="text-sm text-zinc-500">My Role</div>
-          <div className="mt-2 text-2xl font-bold">
-            {contractor.role || "Contractor"}
+      <div className="relative mx-auto max-w-7xl px-6 py-8">
+        <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs text-amber-200">
+              <Sparkles className="h-3.5 w-3.5" />
+              Luxon Entertainment
+            </div>
+            <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
+              Contractor Portal
+            </h1>
+            <p className="mt-2 text-zinc-400">
+              {contractor.name} · {contractor.email || ""}
+            </p>
           </div>
+
+          <button
+            onClick={signOut}
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </button>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-          <div className="text-sm text-zinc-500">My Rate</div>
-          <div className="mt-2 text-2xl font-bold">
-            {money(Number(contractor.rate || 0))} /{" "}
-            {contractor.rate_type || "day"}
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-          <div className="text-sm text-zinc-500">Assignments</div>
-          <div className="mt-2 text-2xl font-bold">{assignments.length}</div>
-        </div>
-      </div>
-
-      <div className="mb-6 rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-2xl font-semibold">My Profile</h2>
-
-          {editMode ? (
-            <div className="flex gap-2">
-              <button
-                onClick={cancelEdit}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveProfile}
-                disabled={saving}
-                className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-2 text-sm font-semibold text-black"
-              >
-                {saving ? "Saving..." : "Save Profile"}
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setEditMode(true)}
-              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
-            >
-              Edit Profile
-            </button>
-          )}
-        </div>
-
-        {editMode ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
-                First Name
-              </span>
-              <input
-                value={profileForm.first_name}
-                onChange={(e) =>
-                  setProfileForm({ ...profileForm, first_name: e.target.value })
-                }
-                className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
-                Last Name
-              </span>
-              <input
-                value={profileForm.last_name}
-                onChange={(e) =>
-                  setProfileForm({ ...profileForm, last_name: e.target.value })
-                }
-                className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
-                Phone
-              </span>
-              <input
-                value={profileForm.phone}
-                onChange={(e) =>
-                  setProfileForm({ ...profileForm, phone: e.target.value })
-                }
-                className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
-                Company
-              </span>
-              <input
-                value={profileForm.company}
-                onChange={(e) =>
-                  setProfileForm({ ...profileForm, company: e.target.value })
-                }
-                className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
-                City
-              </span>
-              <input
-                value={profileForm.city}
-                onChange={(e) =>
-                  setProfileForm({ ...profileForm, city: e.target.value })
-                }
-                className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
-                State
-              </span>
-              <input
-                value={profileForm.state}
-                onChange={(e) =>
-                  setProfileForm({ ...profileForm, state: e.target.value })
-                }
-                className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
-                Emergency Contact Name
-              </span>
-              <input
-                value={profileForm.emergency_contact_name}
-                onChange={(e) =>
-                  setProfileForm({
-                    ...profileForm,
-                    emergency_contact_name: e.target.value,
-                  })
-                }
-                className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
-                Emergency Contact Phone
-              </span>
-              <input
-                value={profileForm.emergency_contact_phone}
-                onChange={(e) =>
-                  setProfileForm({
-                    ...profileForm,
-                    emergency_contact_phone: e.target.value,
-                  })
-                }
-                className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none"
-              />
-            </label>
-
-            <label className="block md:col-span-2">
-              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
-                Skills
-              </span>
-              <textarea
-                value={profileForm.skillsText}
-                onChange={(e) =>
-                  setProfileForm({ ...profileForm, skillsText: e.target.value })
-                }
-                placeholder="A1, V1, L1, Stagehand, LED Tech"
-                className="min-h-[100px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-white outline-none"
-              />
-            </label>
-
-            <label className="block md:col-span-2">
-              <span className="mb-1 block text-xs uppercase tracking-wider text-zinc-500">
-                Notes
-              </span>
-              <textarea
-                value={profileForm.notes}
-                onChange={(e) =>
-                  setProfileForm({ ...profileForm, notes: e.target.value })
-                }
-                className="min-h-[100px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-white outline-none"
-              />
-            </label>
-          </div>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-2xl bg-black/20 p-4">
-              <div className="text-xs text-zinc-500">Phone</div>
-              <div className="mt-1">{contractor.phone || "Not added"}</div>
-            </div>
-            <div className="rounded-2xl bg-black/20 p-4">
-              <div className="text-xs text-zinc-500">Company</div>
-              <div className="mt-1">{contractor.company || "Not added"}</div>
-            </div>
-            <div className="rounded-2xl bg-black/20 p-4">
-              <div className="text-xs text-zinc-500">City / State</div>
-              <div className="mt-1">
-                {[contractor.city, contractor.state].filter(Boolean).join(", ") ||
-                  "Not added"}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-black/20 p-4">
-              <div className="text-xs text-zinc-500">Skills</div>
-              <div className="mt-1">
-                {contractor.skills?.length
-                  ? contractor.skills.join(", ")
-                  : "Not added"}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-black/20 p-4">
-              <div className="text-xs text-zinc-500">Emergency Contact</div>
-              <div className="mt-1">
-                {contractor.emergency_contact_name || "Not added"}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-black/20 p-4">
-              <div className="text-xs text-zinc-500">Emergency Phone</div>
-              <div className="mt-1">
-                {contractor.emergency_contact_phone || "Not added"}
-              </div>
-            </div>
+        {message && (
+          <div className="mb-6 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
+            {message}
           </div>
         )}
-      </div>
 
-      <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-        <h2 className="mb-4 text-2xl font-semibold">My Assignments</h2>
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard
+            icon={<Briefcase className="h-5 w-5" />}
+            label="My Role"
+            value={contractor.role || "Contractor"}
+            sublabel="Current roster role"
+          />
+          <MetricCard
+            icon={<BadgeDollarSign className="h-5 w-5" />}
+            label="My Rate"
+            value={`${money(Number(contractor.rate || 0))} / ${contractor.rate_type || "day"}`}
+            sublabel="Configured pay rate"
+          />
+          <MetricCard
+            icon={<CalendarDays className="h-5 w-5" />}
+            label="Assignments"
+            value={String(assignments.length)}
+            sublabel={`${approvedJobs} approved · ${paidJobs} paid`}
+          />
+          <MetricCard
+            icon={<Clock3 className="h-5 w-5" />}
+            label="Tracked Hours"
+            value={totalTrackedHours.toFixed(2)}
+            sublabel={`${money(totalEarned)} total value`}
+          />
+        </div>
 
-        <div className="space-y-4">
-          {assignments.length ? (
-            assignments.map((row) => {
-              const event = eventsById[row.event_id];
-              const hours = hoursBetween(
-                row.clock_in,
-                row.clock_out,
-                row.break_hours || 0
-              );
-              const total =
-                row.rate_type === "day"
-                  ? Number(row.rate || 0)
-                  : hours * Number(row.rate || 0);
+        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+          <GlassCard>
+            <div className="mb-5 flex items-center justify-between">
+              <SectionTitle
+                icon={<User className="h-5 w-5" />}
+                title="My Profile"
+                subtitle="Keep your contractor details up to date"
+              />
 
-              return (
-                <div
-                  key={row.id}
-                  className="rounded-2xl border border-white/10 bg-black/30 p-4"
-                >
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="text-lg font-semibold">
-                        {row.position || "Assignment"}
-                      </div>
-                      <div className="mt-1 text-sm text-zinc-400">
-                        {event?.name || "Event"} · {event?.venue || ""}
-                      </div>
-                      <div className="mt-1 text-sm text-zinc-500">
-                        {dateLabel(row.work_date)}
-                        {event?.address ? ` · ${event.address}` : ""}
-                      </div>
-                    </div>
-
-                    <div className="text-left md:text-right">
-                      <div className="font-semibold text-amber-300">
-                        {money(total)}
-                      </div>
-                      <div className="text-xs text-zinc-500">
-                        {money(Number(row.rate || 0))} / {row.rate_type || "day"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 md:grid-cols-4">
-                    <div className="rounded-2xl bg-black/20 p-3">
-                      <div className="text-xs text-zinc-500">Call Time</div>
-                      <div className="mt-1">{timeLabel(row.call_time)}</div>
-                    </div>
-                    <div className="rounded-2xl bg-black/20 p-3">
-                      <div className="text-xs text-zinc-500">Clock In / Out</div>
-                      <div className="mt-1">
-                        {timeLabel(row.clock_in)} - {timeLabel(row.clock_out)}
-                      </div>
-                    </div>
-                    <div className="rounded-2xl bg-black/20 p-3">
-                      <div className="text-xs text-zinc-500">Tracked Hours</div>
-                      <div className="mt-1">{hours.toFixed(2)}</div>
-                    </div>
-                    <div className="rounded-2xl bg-black/20 p-3">
-                      <div className="text-xs text-zinc-500">Status</div>
-                      <div className="mt-1">
-                        {row.paid
-                          ? "Paid"
-                          : row.approved
-                          ? "Approved"
-                          : row.confirmed
-                          ? "Confirmed"
-                          : "Pending"}
-                      </div>
-                    </div>
-                  </div>
+              {editMode ? (
+                <div className="flex gap-2">
+                  <button
+                    onClick={cancelEdit}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
+                  >
+                    <X className="h-4 w-4" />
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveProfile}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-2 text-sm font-semibold text-black"
+                  >
+                    <Save className="h-4 w-4" />
+                    {saving ? "Saving..." : "Save Profile"}
+                  </button>
                 </div>
-              );
-            })
-          ) : (
-            <div className="text-zinc-400">No assignments yet.</div>
-          )}
+              ) : (
+                <button
+                  onClick={() => setEditMode(true)}
+                  className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
+                >
+                  Edit Profile
+                </button>
+              )}
+            </div>
+
+            {editMode ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field
+                  label="First Name"
+                  value={profileForm.first_name}
+                  onChange={(v) => setProfileForm({ ...profileForm, first_name: v })}
+                />
+                <Field
+                  label="Last Name"
+                  value={profileForm.last_name}
+                  onChange={(v) => setProfileForm({ ...profileForm, last_name: v })}
+                />
+                <Field
+                  label="Phone"
+                  value={profileForm.phone}
+                  onChange={(v) => setProfileForm({ ...profileForm, phone: v })}
+                />
+                <Field
+                  label="Company"
+                  value={profileForm.company}
+                  onChange={(v) => setProfileForm({ ...profileForm, company: v })}
+                />
+                <Field
+                  label="City"
+                  value={profileForm.city}
+                  onChange={(v) => setProfileForm({ ...profileForm, city: v })}
+                />
+                <Field
+                  label="State"
+                  value={profileForm.state}
+                  onChange={(v) => setProfileForm({ ...profileForm, state: v })}
+                />
+                <Field
+                  label="Emergency Contact Name"
+                  value={profileForm.emergency_contact_name}
+                  onChange={(v) =>
+                    setProfileForm({ ...profileForm, emergency_contact_name: v })
+                  }
+                />
+                <Field
+                  label="Emergency Contact Phone"
+                  value={profileForm.emergency_contact_phone}
+                  onChange={(v) =>
+                    setProfileForm({ ...profileForm, emergency_contact_phone: v })
+                  }
+                />
+                <TextAreaField
+                  label="Skills"
+                  value={profileForm.skillsText}
+                  onChange={(v) => setProfileForm({ ...profileForm, skillsText: v })}
+                />
+                <TextAreaField
+                  label="Notes"
+                  value={profileForm.notes}
+                  onChange={(v) => setProfileForm({ ...profileForm, notes: v })}
+                />
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                <InfoCard icon={<Phone className="h-4 w-4" />} label="Phone" value={contractor.phone || "Not added"} />
+                <InfoCard icon={<Building2 className="h-4 w-4" />} label="Company" value={contractor.company || "Not added"} />
+                <InfoCard
+                  icon={<MapPin className="h-4 w-4" />}
+                  label="City / State"
+                  value={
+                    [contractor.city, contractor.state].filter(Boolean).join(", ") ||
+                    "Not added"
+                  }
+                />
+                <InfoCard
+                  icon={<Briefcase className="h-4 w-4" />}
+                  label="Skills"
+                  value={contractor.skills?.length ? contractor.skills.join(", ") : "Not added"}
+                />
+                <InfoCard
+                  icon={<User className="h-4 w-4" />}
+                  label="Emergency Contact"
+                  value={contractor.emergency_contact_name || "Not added"}
+                />
+                <InfoCard
+                  icon={<Phone className="h-4 w-4" />}
+                  label="Emergency Phone"
+                  value={contractor.emergency_contact_phone || "Not added"}
+                />
+              </div>
+            )}
+          </GlassCard>
+
+          <GlassCard>
+            <SectionTitle
+              icon={<CheckCircle2 className="h-5 w-5" />}
+              title="Summary"
+              subtitle="Quick stats from your current assignments"
+            />
+
+            <div className="mt-5 space-y-4">
+              <SummaryRow label="Approved Jobs" value={String(approvedJobs)} />
+              <SummaryRow label="Paid Jobs" value={String(paidJobs)} />
+              <SummaryRow label="Tracked Hours" value={totalTrackedHours.toFixed(2)} />
+              <SummaryRow label="Total Assignment Value" value={money(totalEarned)} />
+              <SummaryRow
+                label="Primary Email"
+                value={contractor.email || "Not added"}
+              />
+              <SummaryRow
+                label="Rate Type"
+                value={contractor.rate_type || "day"}
+              />
+            </div>
+          </GlassCard>
+        </div>
+
+        <div className="mt-6">
+          <GlassCard>
+            <SectionTitle
+              icon={<CalendarDays className="h-5 w-5" />}
+              title="My Assignments"
+              subtitle="Your jobs, details, and current status"
+            />
+
+            <div className="mt-6 space-y-4">
+              {assignmentRows.length ? (
+                assignmentRows.map((row) => (
+                  <div
+                    key={row.id}
+                    className="rounded-3xl border border-white/10 bg-black/25 p-5"
+                  >
+                    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="mb-2 flex items-center gap-2">
+                          <h3 className="text-xl font-semibold">
+                            {row.position || "Assignment"}
+                          </h3>
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-[11px] ${eventTone(
+                              row.event?.status
+                            )}`}
+                          >
+                            {row.event?.status || "Scheduled"}
+                          </span>
+                        </div>
+
+                        <div className="text-sm text-zinc-400">
+                          {row.event?.name || "Event"} · {row.event?.venue || ""}
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-500">
+                          {row.event?.address ? `· ${row.event.address}` : ""}
+                        </div>
+                      </div>
+
+                      <div className="text-left md:text-right">
+                        <div className="text-2xl font-semibold text-amber-300">
+                          {money(row.total)}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mb-4 grid gap-3 md:grid-cols-4">
+                      <MiniInfo
+                        icon={<CalendarDays className="h-4 w-4" />}
+                        label="Work Date"
+                        value={dateLabel(row.work_date)}
+                      />
+                      <MiniInfo
+                        icon={<Clock3 className="h-4 w-4" />}
+                        label="Call Time"
+                        value={timeLabel(row.call_time)}
+                      />
+                      <MiniInfo
+                        icon={<Clock3 className="h-4 w-4" />}
+                        label="Clock In / Out"
+                        value={`${timeLabel(row.clock_in)} - ${timeLabel(row.clock_out)}`}
+                      />
+                      <MiniInfo
+                        icon={<BadgeDollarSign className="h-4 w-4" />}
+                        label="Tracked Hours"
+                        value={row.hours.toFixed(2)}
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <StatusPill active={!!row.confirmed} text="Confirmed" />
+                      <StatusPill active={!!row.approved} text="Approved" />
+                      <StatusPill active={!!row.paid} text="Paid" />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState text="No assignments yet." />
+              )}
+            </div>
+          </GlassCard>
         </div>
       </div>
     </main>
+  );
+}
+
+function GlassCard({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={`rounded-[28px] border border-white/10 bg-white/[0.04] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl ${className}`}
+    >
+      {children}
+    </section>
+  );
+}
+
+function SectionTitle({
+  icon,
+  title,
+  subtitle,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="rounded-2xl bg-amber-400/10 p-3 text-amber-300">{icon}</div>
+      <div>
+        <h2 className="text-2xl font-semibold">{title}</h2>
+        <p className="text-sm text-zinc-400">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({
+  icon,
+  label,
+  value,
+  sublabel,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sublabel: string;
+}) {
+  return (
+    <GlassCard>
+      <div className="mb-4 inline-flex rounded-2xl bg-amber-400/10 p-3 text-amber-300">
+        {icon}
+      </div>
+      <div className="text-sm text-zinc-500">{label}</div>
+      <div className="mt-1 text-3xl font-bold">{value}</div>
+      <div className="mt-1 text-xs text-zinc-500">{sublabel}</div>
+    </GlassCard>
+  );
+}
+
+function InfoCard({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+      <div className="mb-2 flex items-center gap-2 text-zinc-500">
+        {icon}
+        <span className="text-xs uppercase tracking-wide">{label}</span>
+      </div>
+      <div className="text-sm font-medium text-zinc-100">{value}</div>
+    </div>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+      <span className="text-sm text-zinc-400">{label}</span>
+      <span className="font-medium text-white">{value}</span>
+    </div>
+  );
+}
+
+function MiniInfo({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+      <div className="mb-2 flex items-center gap-2 text-zinc-500">
+        {icon}
+        <span className="text-xs uppercase tracking-wide">{label}</span>
+      </div>
+      <div className="text-sm font-medium text-zinc-100">{value}</div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
+        {label}
+      </span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
+      />
+    </label>
+  );
+}
+
+function TextAreaField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block md:col-span-2">
+      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
+        {label}
+      </span>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
+      />
+    </label>
+  );
+}
+
+function StatusPill({
+  active,
+  text,
+}: {
+  active: boolean;
+  text: string;
+}) {
+  return (
+    <span
+      className={`rounded-full border px-3 py-1 text-xs ${
+        active
+          ? "border-emerald-400/20 bg-emerald-500/20 text-emerald-300"
+          : "border-white/10 bg-white/[0.04] text-zinc-400"
+      }`}
+    >
+      {text}
+    </span>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-sm text-zinc-400">
+      {text}
+    </div>
   );
 }
