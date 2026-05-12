@@ -13,6 +13,8 @@ export default function ManagerPage() {
         data: { session },
       } = await supabase.auth.getSession();
 
+      console.log("manager session", session);
+
       if (!session?.user?.email) {
         window.location.href = "/login";
         return;
@@ -21,13 +23,15 @@ export default function ManagerPage() {
       const userEmail = session.user.email;
       setEmail(userEmail);
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("admins")
         .select("email")
         .eq("email", userEmail)
         .maybeSingle();
 
-      if (!data) {
+      console.log("admin lookup", userEmail, data, error);
+
+      if (error || !data) {
         await supabase.auth.signOut();
         window.location.href = "/login";
         return;
@@ -60,6 +64,7 @@ export default function ManagerPage() {
           <h1 className="text-4xl font-bold">Manager Portal</h1>
           <p className="mt-2 text-zinc-400">Signed in as {email}</p>
         </div>
+
         <button
           onClick={signOut}
           className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
