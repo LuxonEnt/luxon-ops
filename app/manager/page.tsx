@@ -6,6 +6,7 @@ import {
   Activity,
   BadgeDollarSign,
   Briefcase,
+  Building2,
   CalendarDays,
   CheckCircle2,
   ClipboardList,
@@ -19,12 +20,10 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Upload,
   UserPlus,
   Users,
-  Mail,
-  Phone,
-  Building2,
-  Layers3,
+  FolderOpen,
 } from "lucide-react";
 
 type Contractor = {
@@ -82,6 +81,24 @@ type Assignment = {
   paid?: boolean | null;
 };
 
+type AvailabilityItem = {
+  id: number;
+  contractor_id: number;
+  start_date: string;
+  end_date: string;
+  availability_status: string;
+  notes?: string | null;
+  created_at?: string;
+};
+
+type StoredDoc = {
+  contractor_id: number;
+  contractor_name: string;
+  name: string;
+  path: string;
+  updated_at?: string;
+};
+
 type TabKey =
   | "overview"
   | "schedule"
@@ -89,7 +106,8 @@ type TabKey =
   | "contractors"
   | "assignments"
   | "payroll"
-  | "invoices";
+  | "invoices"
+  | "documents";
 
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
@@ -164,6 +182,8 @@ export default function ManagerPage() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [availability, setAvailability] = useState<AvailabilityItem[]>([]);
+  const [documents, setDocuments] = useState<StoredDoc[]>([]);
 
   const [newEvent, setNewEvent] = useState({
     name: "",
@@ -257,13 +277,18 @@ export default function ManagerPage() {
       { data: eventsData, error: eventsError },
       { data: contractorsData, error: contractorsError },
       { data: assignmentsData, error: assignmentsError },
+      { data: availabilityData, error: availabilityError },
     ] = await Promise.all([
       supabase.from("events").select("*").order("start_date", { ascending: false }),
       supabase.from("contractors").select("*").order("name", { ascending: true }),
       supabase.from("assignments").select("*").order("work_date", { ascending: false }),
+      supabase
+        .from("contractor_availability")
+        .select("*")
+        .order("start_date", { ascending: false }),
     ]);
 
-    if (eventsError || contractorsError || assignmentsError) {
+    if (eventsError || contractorsError || assignmentsError || availabilityError) {
       setMessage("Could not load manager data.");
       setLoadingData(false);
       return;
@@ -276,6 +301,7 @@ export default function ManagerPage() {
     setEvents(nextEvents);
     setContractors(nextContractors);
     setAssignments(nextAssignments);
+    setAvailability(availabilityData || []);
 
     if (!invoiceEventId && nextEvents[0]) {
       setInvoiceEventId(String(nextEvents[0].id));
@@ -284,7 +310,46 @@ export default function ManagerPage() {
       setInvoiceContractorId(String(nextContractors[0].id));
     }
 
+    await loadDocuments(nextContractors);
     setLoadingData(false);
+  }
+
+  async function loadDocuments(contractorRows: Contractor[]) {
+    const allDocs: StoredDoc[] = [];
+
+    for (const contractor of contractorRows) {
+      const { data } = await supabase.storage
+        .from("contractor-documents")
+        .list(String(contractor.id), {
+          limit: 100,
+          sortBy: { column: "name", order: "asc" },
+        });
+
+      (data || []).forEach((item: any) => {
+        allDocs.push({
+          contractor_id: contractor.id,
+          contractor_name: contractor.name,
+          name: item.name,
+          path: `${contractor.id}/${item.name}`,
+          updated_at: item.updated_at,
+        });
+      });
+    }
+
+    setDocuments(allDocs);
+  }
+
+  async function openDocument(path: string) {
+    const { data, error } = await supabase.storage
+      .from("contractor-documents")
+      .createSignedUrl(path, 60);
+
+    if (error || !data?.signedUrl) {
+      setMessage("Could not open document.");
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank");
   }
 
   async function signOut() {
@@ -674,6 +739,17 @@ export default function ManagerPage() {
     return true;
   });
 
+  const filteredDocuments = documents.filter((doc) =>
+    `${doc.contractor_name} ${doc.name}`.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const filteredAvailability = availability.filter((item) => {
+    const contractorName = contractorMap[item.contractor_id]?.name || "";
+    return `${contractorName} ${item.availability_status} ${item.notes || ""}`
+      .toLowerCase()
+      .includes(search.toLowerCase());
+  });
+
   const invoiceRows = payrollRows.filter(
     (row) =>
       String(row.event_id) === invoiceEventId &&
@@ -754,6 +830,7 @@ export default function ManagerPage() {
           <TabButton active={activeTab === "assignments"} onClick={() => setActiveTab("assignments")} label="Assignments" />
           <TabButton active={activeTab === "payroll"} onClick={() => setActiveTab("payroll")} label="Payroll" />
           <TabButton active={activeTab === "invoices"} onClick={() => setActiveTab("invoices")} label="Invoices" />
+          <TabButton active={activeTab === "documents"} onClick={() => setActiveTab("documents")} label="Documents" />
         </div>
 
         {loadingData ? (
@@ -841,7 +918,7 @@ export default function ManagerPage() {
         {activeTab === "schedule" && !loadingData && (
           <GlassCard>
             <SectionTitle
-              icon={<Layers3 className="h-5 w-5" />}
+              icon={<ClipboardList className="h-5 w-5" />}
               title="Schedule Board"
               subtitle="Crew assignments grouped by work date"
             />
@@ -1029,12 +1106,6 @@ export default function ManagerPage() {
                         <Field label="Email" value={contractor.email || ""} onChange={(v) => updateContractorField(contractor, "email", v)} />
                         <Field label="Rate" type="number" value={String(contractor.rate || 0)} onChange={(v) => updateContractorField(contractor, "rate", v)} />
                       </div>
-
-                      <div className="mt-4 grid gap-3 md:grid-cols-3">
-                        <MiniInfo icon={<Mail className="h-4 w-4" />} label="Email" value={contractor.email || "--"} />
-                        <MiniInfo icon={<Phone className="h-4 w-4" />} label="Phone" value={contractor.phone || "--"} />
-                        <MiniInfo icon={<MapPin className="h-4 w-4" />} label="Location" value={`${contractor.city || ""}${contractor.city && contractor.state ? ", " : ""}${contractor.state || ""}` || "--"} />
-                      </div>
                     </EntityCard>
                   ))
                 ) : (
@@ -1152,7 +1223,7 @@ export default function ManagerPage() {
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <SectionTitle icon={<Filter className="h-5 w-5" />} title="Assignments" subtitle={`${filteredAssignments.length} matching results`} />
                 <div className="w-full md:w-56">
-                  <SelectField
+                  <SimpleSelect
                     label="Filter"
                     value={assignmentFilter}
                     onChange={setAssignmentFilter}
@@ -1218,7 +1289,7 @@ export default function ManagerPage() {
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <SectionTitle icon={<DollarSign className="h-5 w-5" />} title="Payroll Review" subtitle={`${filteredPayrollRows.length} matching results`} />
                 <div className="w-full md:w-56">
-                  <SelectField
+                  <SimpleSelect
                     label="Filter"
                     value={payrollFilter}
                     onChange={setPayrollFilter}
@@ -1332,7 +1403,7 @@ export default function ManagerPage() {
             <GlassCard className="print-area">
               <SectionTitle icon={<FileText className="h-5 w-5" />} title="Invoice Preview" subtitle="Approved items only" />
 
-              <div id="manager-invoice-print" className="mt-6 rounded-3xl border border-white/10 bg-white p-6 text-slate-900">
+              <div id="manager-invoice-print" className="mt-6 rounded-3xl border border-white/10 bg-white p-10 text-slate-900">
                 <div className="mb-8 flex items-start justify-between border-b border-slate-200 pb-6">
                   <div>
                     <div className="text-2xl font-bold">Luxon Entertainment LLC</div>
@@ -1422,6 +1493,92 @@ export default function ManagerPage() {
                 </div>
               </div>
             </GlassCard>
+          </div>
+        )}
+
+        {activeTab === "documents" && !loadingData && (
+          <div className="space-y-6">
+            <div className="grid gap-6 xl:grid-cols-2">
+              <GlassCard>
+                <SectionTitle
+                  icon={<FolderOpen className="h-5 w-5" />}
+                  title="Uploaded Contractor Documents"
+                  subtitle={`${filteredDocuments.length} matching files`}
+                />
+
+                <div className="mt-5 space-y-3">
+                  {filteredDocuments.length ? (
+                    filteredDocuments.map((doc) => (
+                      <div
+                        key={doc.path}
+                        className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/25 p-4"
+                      >
+                        <div>
+                          <div className="font-medium">{doc.name}</div>
+                          <div className="text-sm text-zinc-400">
+                            {doc.contractor_name}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {doc.updated_at
+                              ? new Date(doc.updated_at).toLocaleString()
+                              : ""}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => openDocument(doc.path)}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
+                        >
+                          <Upload className="h-4 w-4" />
+                          Open
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyState text="No contractor documents found." />
+                  )}
+                </div>
+              </GlassCard>
+
+              <GlassCard>
+                <SectionTitle
+                  icon={<CalendarDays className="h-5 w-5" />}
+                  title="Availability Submissions"
+                  subtitle={`${filteredAvailability.length} matching rows`}
+                />
+
+                <div className="mt-5 space-y-3">
+                  {filteredAvailability.length ? (
+                    filteredAvailability.map((row) => (
+                      <div
+                        key={row.id}
+                        className="rounded-2xl border border-white/10 bg-black/25 p-4"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-medium">
+                              {contractorMap[row.contractor_id]?.name || "Contractor"}
+                            </div>
+                            <div className="text-sm text-zinc-400">
+                              {dateLabel(row.start_date)} - {dateLabel(row.end_date)}
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              {row.notes || "No notes"}
+                            </div>
+                          </div>
+
+                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-zinc-300">
+                            {row.availability_status}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyState text="No availability submissions found." />
+                  )}
+                </div>
+              </GlassCard>
+            </div>
           </div>
         )}
       </div>
@@ -1669,6 +1826,37 @@ function SelectField({
             </option>
           );
         })}
+      </select>
+    </label>
+  );
+}
+
+function SimpleSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none focus:border-amber-400/40"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
       </select>
     </label>
   );
