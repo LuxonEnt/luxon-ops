@@ -648,8 +648,16 @@ export default function ContractorPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] text-white">
-      <div className="pointer-events-none fixed inset-0">
+    <main className="relative min-h-screen overflow-hidden bg-[#050505] text-white">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-0 bg-black/70" />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <img
+            src="/luxon-logo.png"
+            alt="Luxon Entertainment background"
+            className="w-[80vw] max-w-[1350px] opacity-[0.06] object-contain"
+          />
+        </div>
         <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-amber-500/10 blur-3xl" />
         <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-yellow-300/5 blur-3xl" />
       </div>
@@ -1329,7 +1337,7 @@ function GlassCard({
 }) {
   return (
     <section
-      className={`rounded-[28px] border border-white/10 bg-white/[0.04] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl ${className}`}
+      className={`rounded-[28px] border border-white/10 bg-black/55 p-6 shadow-[0_10px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl ${className}`}
     >
       {children}
     </section>
@@ -1454,7 +1462,7 @@ function Field({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
+        className="h-12 w-full rounded-2xl border border-white/10 bg-black/35 px-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
       />
     </label>
   );
@@ -1477,7 +1485,7 @@ function TextAreaField({
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
+        className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/35 p-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
       />
     </label>
   );
@@ -1502,7 +1510,7 @@ function SelectField({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none focus:border-amber-400/40"
+        className="h-12 w-full rounded-2xl border border-white/10 bg-black/35 px-4 text-white outline-none focus:border-amber-400/40"
       >
         {options.map((option) => (
           <option key={option} value={option}>
