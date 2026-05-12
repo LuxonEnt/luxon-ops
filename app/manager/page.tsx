@@ -14,6 +14,7 @@ import {
   DollarSign,
   FileText,
   Filter,
+  FolderOpen,
   LogOut,
   MapPin,
   Plus,
@@ -23,7 +24,6 @@ import {
   Upload,
   UserPlus,
   Users,
-  FolderOpen,
 } from "lucide-react";
 
 type Contractor = {
@@ -318,12 +318,14 @@ export default function ManagerPage() {
     const allDocs: StoredDoc[] = [];
 
     for (const contractor of contractorRows) {
-      const { data } = await supabase.storage
+      const { data, error } = await supabase.storage
         .from("contractor-documents")
         .list(String(contractor.id), {
           limit: 100,
           sortBy: { column: "name", order: "asc" },
         });
+
+      if (error) continue;
 
       (data || []).forEach((item: any) => {
         allDocs.push({
