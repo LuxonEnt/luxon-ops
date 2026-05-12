@@ -12,7 +12,6 @@ import {
   Download,
   FileText,
   LogOut,
-  Mail,
   MapPin,
   Navigation,
   Phone,
@@ -190,6 +189,18 @@ async function getCurrentPositionSafe(): Promise<GeolocationPosition | null> {
   });
 }
 
+function startOfPayPeriod(rows: Array<{ work_date: string }>) {
+  if (!rows.length) return "--";
+  const dates = rows.map((r) => r.work_date).filter(Boolean).sort();
+  return dateLabel(dates[0]);
+}
+
+function endOfPayPeriod(rows: Array<{ work_date: string }>) {
+  if (!rows.length) return "--";
+  const dates = rows.map((r) => r.work_date).filter(Boolean).sort();
+  return dateLabel(dates[dates.length - 1]);
+}
+
 export default function ContractorPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -221,6 +232,15 @@ export default function ContractorPage() {
     start_date: "",
     end_date: "",
     availability_status: "Available",
+    notes: "",
+  });
+
+  const [payStubForm, setPayStubForm] = useState({
+    reference_number: `PS-${new Date().getFullYear()}-${String(
+      new Date().getMonth() + 1
+    ).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
+    deductions: "0",
+    reimbursements: "0",
     notes: "",
   });
 
@@ -360,6 +380,11 @@ export default function ContractorPage() {
   const paidJobs = assignmentRows.filter((row) => row.paid).length;
   const totalEarned = assignmentRows.reduce((sum, row) => sum + row.total, 0);
   const payStubRows = assignmentRows.filter((row) => row.approved);
+
+  const deductions = Number(payStubForm.deductions || 0);
+  const reimbursements = Number(payStubForm.reimbursements || 0);
+  const grossPay = payStubRows.reduce((sum, row) => sum + row.total, 0);
+  const netPay = grossPay - deductions + reimbursements;
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -1086,53 +1111,169 @@ export default function ContractorPage() {
             <SectionTitle
               icon={<FileText className="h-5 w-5" />}
               title="Pay Stub View"
-              subtitle="Approved assignment summary"
+              subtitle="Branded printable summary"
             />
 
-            <div id="contractor-paystub-print" className="mt-5 space-y-4">
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                <div className="text-sm text-zinc-500">Contractor</div>
-                <div className="mt-1 text-lg font-semibold">{contractor.name}</div>
-                <div className="text-sm text-zinc-400">{contractor.email || ""}</div>
-              </div>
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <Field
+                label="Reference Number"
+                value={payStubForm.reference_number}
+                onChange={(v) =>
+                  setPayStubForm({ ...payStubForm, reference_number: v })
+                }
+              />
+              <div />
+              <Field
+                label="Deductions"
+                type="number"
+                value={payStubForm.deductions}
+                onChange={(v) => setPayStubForm({ ...payStubForm, deductions: v })}
+              />
+              <Field
+                label="Reimbursements"
+                type="number"
+                value={payStubForm.reimbursements}
+                onChange={(v) =>
+                  setPayStubForm({ ...payStubForm, reimbursements: v })
+                }
+              />
+              <TextAreaField
+                label="Notes"
+                value={payStubForm.notes}
+                onChange={(v) => setPayStubForm({ ...payStubForm, notes: v })}
+              />
+            </div>
 
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                <div className="text-sm text-zinc-500">Approved Jobs</div>
-                <div className="mt-1 text-2xl font-semibold text-amber-300">
-                  {approvedJobs}
+            <div
+              id="contractor-paystub-print"
+              className="mt-6 rounded-3xl border border-white/10 bg-white p-8 text-slate-900"
+            >
+              <div className="mb-8 flex items-start justify-between border-b border-slate-200 pb-6">
+                <div className="max-w-[260px]">
+                  <img
+                    src="/luxon-logo.png"
+                    alt="Luxon Entertainment"
+                    className="h-auto w-full object-contain"
+                  />
+                </div>
+
+                <div className="text-right">
+                  <div className="text-3xl font-bold tracking-tight">PAY STUB</div>
+                  <div className="mt-2 text-sm text-slate-500">
+                    Reference: {payStubForm.reference_number}
+                  </div>
+                  <div className="text-sm text-slate-500">
+                    Generated: {new Date().toLocaleDateString("en-US")}
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {payStubRows.length ? (
-                  payStubRows.map((row) => (
-                    <div
-                      key={row.id}
-                      className="rounded-2xl border border-white/10 bg-black/25 p-4"
-                    >
-                      <div className="font-medium">{row.event?.name || "Event"}</div>
-                      <div className="text-sm text-zinc-400">
-                        {row.position} · {dateLabel(row.work_date)}
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-sm">
-                        <span className="text-zinc-500">{row.hours.toFixed(2)} hrs</span>
-                        <span className="font-semibold text-amber-300">
-                          {money(row.total)}
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <EmptyState text="No approved pay stub items yet." />
-                )}
+              <div className="mb-6 grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="text-xs uppercase tracking-wide text-slate-400">
+                    Contractor
+                  </div>
+                  <div className="mt-2 text-lg font-bold">{contractor.name}</div>
+                  <div>{contractor.email || ""}</div>
+                  <div>{contractor.phone || ""}</div>
+                  <div>
+                    {[contractor.city, contractor.state].filter(Boolean).join(", ")}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="text-xs uppercase tracking-wide text-slate-400">
+                    Pay Period
+                  </div>
+                  <div className="mt-2 text-lg font-bold">
+                    {startOfPayPeriod(payStubRows)} - {endOfPayPeriod(payStubRows)}
+                  </div>
+                  <div className="mt-3 text-xs uppercase tracking-wide text-slate-400">
+                    Rate
+                  </div>
+                  <div className="mt-1">
+                    {money(Number(contractor.rate || 0))} / {contractor.rate_type || "day"}
+                  </div>
+                </div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-400">Approved Total</span>
-                  <span className="text-xl font-semibold text-amber-300">
-                    {money(payStubRows.reduce((sum, row) => sum + row.total, 0))}
-                  </span>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-300 bg-slate-100">
+                      <th className="p-3">Date</th>
+                      <th className="p-3">Event</th>
+                      <th className="p-3">Position</th>
+                      <th className="p-3">Hours</th>
+                      <th className="p-3">Rate</th>
+                      <th className="p-3 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {payStubRows.length ? (
+                      payStubRows.map((row) => (
+                        <tr key={row.id} className="border-b border-slate-200">
+                          <td className="p-3">{dateLabel(row.work_date)}</td>
+                          <td className="p-3">{row.event?.name || "Event"}</td>
+                          <td className="p-3">{row.position || "Assignment"}</td>
+                          <td className="p-3">{row.hours.toFixed(2)}</td>
+                          <td className="p-3">
+                            {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+                          </td>
+                          <td className="p-3 text-right font-semibold">
+                            {money(row.total)}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-3" colSpan={6}>
+                          No approved pay stub items yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="text-xs uppercase tracking-wide text-slate-400">
+                    Notes
+                  </div>
+                  <div className="mt-2 min-h-[72px] text-sm text-slate-700">
+                    {payStubForm.notes || "No additional notes."}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-slate-100 p-5">
+                  <div className="mb-2 flex justify-between">
+                    <span>Gross Pay</span>
+                    <span>{money(grossPay)}</span>
+                  </div>
+                  <div className="mb-2 flex justify-between">
+                    <span>Deductions</span>
+                    <span>- {money(deductions)}</span>
+                  </div>
+                  <div className="mb-2 flex justify-between">
+                    <span>Reimbursements</span>
+                    <span>+ {money(reimbursements)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-300 pt-3 text-xl font-bold">
+                    <span>Net Pay</span>
+                    <span>{money(netPay)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-10 grid gap-10 md:grid-cols-2">
+                <div>
+                  <div className="mb-12 border-b border-slate-400" />
+                  <div className="text-sm text-slate-600">Contractor Signature</div>
+                </div>
+                <div>
+                  <div className="mb-12 border-b border-slate-400" />
+                  <div className="text-sm text-slate-600">Authorized Signature</div>
                 </div>
               </div>
             </div>
@@ -1165,6 +1306,9 @@ export default function ContractorPage() {
             background: white !important;
             color: black !important;
             padding: 24px !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
           }
           @page {
             size: letter;
