@@ -9,12 +9,16 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  Download,
+  FileText,
   LogOut,
   Mail,
   MapPin,
+  Navigation,
   Phone,
   Save,
   Sparkles,
+  Upload,
   User,
   X,
 } from "lucide-react";
@@ -49,6 +53,8 @@ type Assignment = {
   call_time: string | null;
   clock_in: string | null;
   clock_out: string | null;
+  clock_in_location: string | null;
+  clock_out_location: string | null;
   break_hours: number;
   rate: number;
   rate_type: string;
@@ -63,9 +69,29 @@ type EventItem = {
   client: string | null;
   venue: string | null;
   address: string | null;
+  latitude?: string | null;
+  longitude?: string | null;
+  geofence_radius_feet?: number | null;
   start_date: string | null;
   end_date: string | null;
   status?: string | null;
+};
+
+type AvailabilityItem = {
+  id: number;
+  contractor_id: number;
+  start_date: string;
+  end_date: string;
+  availability_status: string;
+  notes: string | null;
+  created_at?: string;
+};
+
+type StoredDoc = {
+  name: string;
+  path: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
 function money(value: number) {
@@ -76,7 +102,7 @@ function money(value: number) {
 }
 
 function dateLabel(value?: string | null) {
-  if (!value) return "";
+  if (!value) return "--";
   return new Date(`${value}T12:00:00`).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -92,6 +118,13 @@ function timeLabel(value?: string | null) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function nowTimeInput() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(
+    now.getMinutes()
+  ).padStart(2, "0")}`;
 }
 
 function hoursBetween(
@@ -121,14 +154,55 @@ function eventTone(status?: string | null) {
   }
 }
 
+function mapsUrl(address?: string | null) {
+  if (!address) return "#";
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+    address
+  )}`;
+}
+
+function distanceFeet(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const earthRadiusFeet = 20902231;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusFeet * c;
+}
+
+async function getCurrentPositionSafe(): Promise<GeolocationPosition | null> {
+  if (!navigator.geolocation) return null;
+
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve(pos),
+      () => resolve(null),
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 0,
+      }
+    );
+  });
+}
+
 export default function ContractorPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [clockingId, setClockingId] = useState<number | null>(null);
   const [contractor, setContractor] = useState<Contractor | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [eventsById, setEventsById] = useState<Record<number, EventItem>>({});
   const [message, setMessage] = useState("");
   const [editMode, setEditMode] = useState(false);
+
+  const [availability, setAvailability] = useState<AvailabilityItem[]>([]);
+  const [documents, setDocuments] = useState<StoredDoc[]>([]);
 
   const [profileForm, setProfileForm] = useState({
     first_name: "",
@@ -141,6 +215,13 @@ export default function ContractorPage() {
     emergency_contact_phone: "",
     notes: "",
     skillsText: "",
+  });
+
+  const [availabilityForm, setAvailabilityForm] = useState({
+    start_date: "",
+    end_date: "",
+    availability_status: "Available",
+    notes: "",
   });
 
   useEffect(() => {
@@ -193,35 +274,70 @@ export default function ContractorPage() {
       if (assignmentError) {
         setMessage("Could not load your assignments.");
         setAssignments([]);
-        setLoading(false);
-        return;
+      } else {
+        const loadedAssignments = assignmentRows || [];
+        setAssignments(loadedAssignments);
+
+        const uniqueEventIds = [
+          ...new Set(loadedAssignments.map((row) => row.event_id).filter(Boolean)),
+        ];
+
+        if (uniqueEventIds.length > 0) {
+          const { data: eventRows } = await supabase
+            .from("events")
+            .select("*")
+            .in("id", uniqueEventIds);
+
+          const map: Record<number, EventItem> = {};
+          (eventRows || []).forEach((event) => {
+            map[event.id] = event;
+          });
+          setEventsById(map);
+        }
       }
 
-      const loadedAssignments = assignmentRows || [];
-      setAssignments(loadedAssignments);
-
-      const uniqueEventIds = [
-        ...new Set(loadedAssignments.map((row) => row.event_id).filter(Boolean)),
-      ];
-
-      if (uniqueEventIds.length > 0) {
-        const { data: eventRows } = await supabase
-          .from("events")
-          .select("*")
-          .in("id", uniqueEventIds);
-
-        const map: Record<number, EventItem> = {};
-        (eventRows || []).forEach((event) => {
-          map[event.id] = event;
-        });
-        setEventsById(map);
-      }
+      await Promise.all([
+        loadAvailability(contractorRow.id),
+        loadDocuments(contractorRow.id),
+      ]);
 
       setLoading(false);
     }
 
     loadContractorPortal();
   }, []);
+
+  async function loadAvailability(contractorId: number) {
+    const { data, error } = await supabase
+      .from("contractor_availability")
+      .select("*")
+      .eq("contractor_id", contractorId)
+      .order("start_date", { ascending: false });
+
+    if (!error) {
+      setAvailability(data || []);
+    }
+  }
+
+  async function loadDocuments(contractorId: number) {
+    const { data, error } = await supabase.storage
+      .from("contractor-documents")
+      .list(String(contractorId), {
+        limit: 100,
+        sortBy: { column: "name", order: "asc" },
+      });
+
+    if (!error) {
+      const rows =
+        (data || []).map((item) => ({
+          name: item.name,
+          path: `${contractorId}/${item.name}`,
+          created_at: (item as any).created_at,
+          updated_at: (item as any).updated_at,
+        })) || [];
+      setDocuments(rows);
+    }
+  }
 
   const assignmentRows = useMemo(() => {
     return assignments.map((row) => {
@@ -243,6 +359,7 @@ export default function ContractorPage() {
   const approvedJobs = assignmentRows.filter((row) => row.approved).length;
   const paidJobs = assignmentRows.filter((row) => row.paid).length;
   const totalEarned = assignmentRows.reduce((sum, row) => sum + row.total, 0);
+  const payStubRows = assignmentRows.filter((row) => row.approved);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -330,6 +447,154 @@ export default function ContractorPage() {
     });
     setEditMode(false);
     setMessage("");
+  }
+
+  async function submitAvailability() {
+    if (!contractor) return;
+    if (!availabilityForm.start_date || !availabilityForm.end_date) {
+      setMessage("Availability start and end date are required.");
+      return;
+    }
+
+    const { error } = await supabase.from("contractor_availability").insert({
+      contractor_id: contractor.id,
+      start_date: availabilityForm.start_date,
+      end_date: availabilityForm.end_date,
+      availability_status: availabilityForm.availability_status,
+      notes: availabilityForm.notes.trim() || null,
+    });
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setAvailabilityForm({
+      start_date: "",
+      end_date: "",
+      availability_status: "Available",
+      notes: "",
+    });
+
+    setMessage("Availability submitted.");
+    loadAvailability(contractor.id);
+  }
+
+  async function uploadDocument(file: File | null) {
+    if (!contractor || !file) return;
+
+    try {
+      setUploading(true);
+      setMessage("");
+
+      const safeName = `${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
+      const path = `${contractor.id}/${safeName}`;
+
+      const { error } = await supabase.storage
+        .from("contractor-documents")
+        .upload(path, file, {
+          upsert: false,
+        });
+
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+
+      setMessage("Document uploaded.");
+      await loadDocuments(contractor.id);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function downloadDocument(path: string) {
+    const { data, error } = await supabase.storage
+      .from("contractor-documents")
+      .createSignedUrl(path, 60);
+
+    if (error || !data?.signedUrl) {
+      setMessage("Could not create download link for document.");
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank");
+  }
+
+  async function handleClock(id: number, type: "in" | "out") {
+    const row = assignmentRows.find((item) => item.id === id);
+    if (!row) return;
+
+    try {
+      setClockingId(id);
+      setMessage("");
+
+      const event = row.event;
+      const position = await getCurrentPositionSafe();
+
+      let locationStamp = "location unavailable";
+      if (position) {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        locationStamp = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+
+        if (
+          event?.latitude &&
+          event?.longitude &&
+          Number(event.geofence_radius_feet || 0) > 0
+        ) {
+          const distance = distanceFeet(
+            lat,
+            lon,
+            Number(event.latitude),
+            Number(event.longitude)
+          );
+
+          if (distance > Number(event.geofence_radius_feet || 0)) {
+            setMessage(
+              `You are outside the allowed clock radius by about ${Math.round(
+                distance
+              )} ft.`
+            );
+            return;
+          }
+
+          locationStamp = `${locationStamp} (${Math.round(distance)} ft from venue)`;
+        }
+      }
+
+      const payload =
+        type === "in"
+          ? {
+              clock_in: nowTimeInput(),
+              clock_in_location: locationStamp,
+            }
+          : {
+              clock_out: nowTimeInput(),
+              clock_out_location: locationStamp,
+            };
+
+      const { error } = await supabase
+        .from("assignments")
+        .update(payload)
+        .eq("id", id);
+
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+
+      setAssignments((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, ...payload } : item))
+      );
+      setMessage(type === "in" ? "Clock-in successful." : "Clock-out successful.");
+    } finally {
+      setClockingId(null);
+    }
+  }
+
+  function printPayStub() {
+    window.print();
   }
 
   if (loading) {
@@ -570,12 +835,149 @@ export default function ContractorPage() {
           </GlassCard>
         </div>
 
-        <div className="mt-6">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+          <GlassCard>
+            <div className="mb-5 flex items-center justify-between">
+              <SectionTitle
+                icon={<CalendarDays className="h-5 w-5" />}
+                title="Availability Submission"
+                subtitle="Send your available or unavailable dates"
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field
+                label="Start Date"
+                type="date"
+                value={availabilityForm.start_date}
+                onChange={(v) =>
+                  setAvailabilityForm({ ...availabilityForm, start_date: v })
+                }
+              />
+              <Field
+                label="End Date"
+                type="date"
+                value={availabilityForm.end_date}
+                onChange={(v) =>
+                  setAvailabilityForm({ ...availabilityForm, end_date: v })
+                }
+              />
+              <SelectField
+                label="Status"
+                value={availabilityForm.availability_status}
+                onChange={(v) =>
+                  setAvailabilityForm({
+                    ...availabilityForm,
+                    availability_status: v,
+                  })
+                }
+                options={["Available", "Unavailable", "Preferred"]}
+              />
+              <div />
+              <TextAreaField
+                label="Notes"
+                value={availabilityForm.notes}
+                onChange={(v) =>
+                  setAvailabilityForm({ ...availabilityForm, notes: v })
+                }
+              />
+            </div>
+
+            <div className="mt-4">
+              <button
+                onClick={submitAvailability}
+                className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-5 py-3 font-semibold text-black"
+              >
+                Submit Availability
+              </button>
+            </div>
+
+            <div className="mt-6 space-y-3">
+              {availability.length ? (
+                availability.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-white/10 bg-black/25 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-medium">
+                          {dateLabel(item.start_date)} - {dateLabel(item.end_date)}
+                        </div>
+                        <div className="text-sm text-zinc-400">
+                          {item.notes || "No notes"}
+                        </div>
+                      </div>
+                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-zinc-300">
+                        {item.availability_status}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState text="No availability submissions yet." />
+              )}
+            </div>
+          </GlassCard>
+
+          <GlassCard>
+            <SectionTitle
+              icon={<Upload className="h-5 w-5" />}
+              title="Documents"
+              subtitle="Upload ID, certificates, or other contractor files"
+            />
+
+            <div className="mt-5">
+              <label className="block">
+                <span className="mb-2 block text-xs uppercase tracking-wide text-zinc-500">
+                  Upload Document
+                </span>
+                <input
+                  type="file"
+                  onChange={(e) => uploadDocument(e.target.files?.[0] || null)}
+                  className="block w-full rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-white"
+                />
+              </label>
+              <p className="mt-2 text-xs text-zinc-500">
+                {uploading ? "Uploading..." : "Uploads go to your contractor document folder."}
+              </p>
+            </div>
+
+            <div className="mt-6 space-y-3">
+              {documents.length ? (
+                documents.map((doc) => (
+                  <div
+                    key={doc.path}
+                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/25 p-4"
+                  >
+                    <div>
+                      <div className="font-medium">{doc.name}</div>
+                      <div className="text-xs text-zinc-500">
+                        {doc.updated_at ? new Date(doc.updated_at).toLocaleString() : ""}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => downloadDocument(doc.path)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-white"
+                    >
+                      <Download className="h-4 w-4" />
+                      Open
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <EmptyState text="No uploaded documents yet." />
+              )}
+            </div>
+          </GlassCard>
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
           <GlassCard>
             <SectionTitle
               icon={<CalendarDays className="h-5 w-5" />}
               title="My Assignments"
-              subtitle="Your jobs, details, and current status"
+              subtitle="Your jobs, directions, and clock tools"
             />
 
             <div className="mt-6 space-y-4">
@@ -641,10 +1043,36 @@ export default function ContractorPage() {
                       />
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className="mb-4 flex flex-wrap gap-2">
                       <StatusPill active={!!row.confirmed} text="Confirmed" />
                       <StatusPill active={!!row.approved} text="Approved" />
                       <StatusPill active={!!row.paid} text="Paid" />
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        onClick={() => handleClock(row.id, "in")}
+                        disabled={clockingId === row.id}
+                        className="rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-black disabled:opacity-60"
+                      >
+                        Clock In
+                      </button>
+                      <button
+                        onClick={() => handleClock(row.id, "out")}
+                        disabled={clockingId === row.id}
+                        className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 font-semibold text-red-200 disabled:opacity-60"
+                      >
+                        Clock Out
+                      </button>
+                      <a
+                        href={mapsUrl(row.event?.address)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+                      >
+                        <Navigation className="h-4 w-4" />
+                        Directions
+                      </a>
                     </div>
                   </div>
                 ))
@@ -653,8 +1081,97 @@ export default function ContractorPage() {
               )}
             </div>
           </GlassCard>
+
+          <GlassCard>
+            <SectionTitle
+              icon={<FileText className="h-5 w-5" />}
+              title="Pay Stub View"
+              subtitle="Approved assignment summary"
+            />
+
+            <div id="contractor-paystub-print" className="mt-5 space-y-4">
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                <div className="text-sm text-zinc-500">Contractor</div>
+                <div className="mt-1 text-lg font-semibold">{contractor.name}</div>
+                <div className="text-sm text-zinc-400">{contractor.email || ""}</div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                <div className="text-sm text-zinc-500">Approved Jobs</div>
+                <div className="mt-1 text-2xl font-semibold text-amber-300">
+                  {approvedJobs}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {payStubRows.length ? (
+                  payStubRows.map((row) => (
+                    <div
+                      key={row.id}
+                      className="rounded-2xl border border-white/10 bg-black/25 p-4"
+                    >
+                      <div className="font-medium">{row.event?.name || "Event"}</div>
+                      <div className="text-sm text-zinc-400">
+                        {row.position} · {dateLabel(row.work_date)}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-sm">
+                        <span className="text-zinc-500">{row.hours.toFixed(2)} hrs</span>
+                        <span className="font-semibold text-amber-300">
+                          {money(row.total)}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <EmptyState text="No approved pay stub items yet." />
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">Approved Total</span>
+                  <span className="text-xl font-semibold text-amber-300">
+                    {money(payStubRows.reduce((sum, row) => sum + row.total, 0))}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={printPayStub}
+              className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+            >
+              <Download className="h-4 w-4" />
+              Download / Print Pay Stub
+            </button>
+          </GlassCard>
         </div>
       </div>
+
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #contractor-paystub-print,
+          #contractor-paystub-print * {
+            visibility: visible !important;
+          }
+          #contractor-paystub-print {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            background: white !important;
+            color: black !important;
+            padding: 24px !important;
+          }
+          @page {
+            size: letter;
+            margin: 0.5in;
+          }
+        }
+      `}</style>
     </main>
   );
 }
@@ -818,6 +1335,37 @@ function TextAreaField({
         onChange={(e) => onChange(e.target.value)}
         className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
       />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none focus:border-amber-400/40"
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
