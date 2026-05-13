@@ -2045,3 +2045,36 @@ function StatusStack({
     </div>
   );
 }
+async function geocodeAddress(address: string) {
+  const cleanAddress = address.trim();
+
+  if (!cleanAddress) {
+    return {
+      latitude: null,
+      longitude: null,
+      formatted_address: null,
+    };
+  }
+
+  const response = await fetch("/api/geocode", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      address: cleanAddress,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error || "Could not geocode address.");
+  }
+
+  return {
+    latitude: data.latitude as number,
+    longitude: data.longitude as number,
+    formatted_address: data.formatted_address as string,
+  };
+}
