@@ -15,6 +15,7 @@ import {
   FileText,
   LogOut,
   MapPin,
+  Navigation,
   Pencil,
   Phone,
   Receipt,
@@ -53,6 +54,8 @@ type Assignment = {
   call_time?: string | null;
   clock_in?: string | null;
   clock_out?: string | null;
+  clock_in_location?: string | null;
+  clock_out_location?: string | null;
   break_hours?: number | null;
   rate?: number | null;
   rate_type?: string | null;
@@ -67,6 +70,9 @@ type EventItem = {
   venue?: string | null;
   address?: string | null;
   client?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  geofence_radius_feet?: number | null;
 };
 
 type StoredDoc = {
@@ -102,10 +108,18 @@ function timeLabel(value?: string | null) {
   if (!value) return "--";
   const clean = String(value).slice(0, 5);
   const [h, m] = clean.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return value;
   return new Date(2026, 0, 1, h, m).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function currentTimeForDb() {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
 }
 
 function hoursBetween(
@@ -116,9 +130,12 @@ function hoursBetween(
   if (!start || !end) return 0;
   const [sh, sm] = String(start).slice(0, 5).split(":").map(Number);
   const [eh, em] = String(end).slice(0, 5).split(":").map(Number);
+  if ([sh, sm, eh, em].some(Number.isNaN)) return 0;
+
   let startMins = sh * 60 + sm;
   let endMins = eh * 60 + em;
   if (endMins < startMins) endMins += 24 * 60;
+
   return Math.max(0, (endMins - startMins) / 60 - Number(breakHours || 0));
 }
 
@@ -138,6 +155,45 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#039;");
 }
 
+function distanceFeet(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+) {
+  const earthRadiusFeet = 20902231;
+  const toRad = (value: number) => (value * Math.PI) / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusFeet * c;
+}
+
+function buildDirectionsUrl(event?: EventItem) {
+  if (!event) return "#";
+
+  if (event.latitude && event.longitude) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${event.latitude},${event.longitude}`;
+  }
+
+  if (event.address) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+      event.address
+    )}`;
+  }
+
+  return "#";
+}
+
 function buildInvoiceHtml(
   contractor: Contractor,
   assignment: AssignmentSummary
@@ -152,22 +208,14 @@ function buildInvoiceHtml(
   <meta charset="utf-8" />
   <title>Luxon Invoice Record #${assignment.id}</title>
   <style>
-    @page {
-      size: letter;
-      margin: 0.5in;
-    }
-    * {
-      box-sizing: border-box;
-    }
+    @page { size: letter; margin: 0.5in; }
+    * { box-sizing: border-box; }
     html, body {
       margin: 0;
       padding: 0;
       background: white;
       color: #0f172a;
       font-family: Arial, Helvetica, sans-serif;
-    }
-    body {
-      padding: 0;
     }
     .sheet {
       width: 100%;
@@ -205,9 +253,7 @@ function buildInvoiceHtml(
       font-size: 14px;
       line-height: 1.5;
     }
-    .approved {
-      text-align: right;
-    }
+    .approved { text-align: right; }
     .approved .big {
       font-size: 36px;
       font-weight: 700;
@@ -251,9 +297,7 @@ function buildInvoiceHtml(
       text-align: left;
       border-bottom: 1px solid #e2e8f0;
     }
-    th:last-child, td:last-child {
-      text-align: right;
-    }
+    th:last-child, td:last-child { text-align: right; }
     .bottom-grid {
       display: grid;
       grid-template-columns: 1fr 320px;
@@ -283,15 +327,6 @@ function buildInvoiceHtml(
       margin-top: 28px;
       color: #64748b;
       font-size: 12px;
-    }
-    @media print {
-      html, body {
-        width: 100%;
-        height: auto;
-      }
-      .sheet {
-        break-inside: avoid;
-      }
     }
   </style>
 </head>
@@ -404,6 +439,7 @@ export default function ContractorPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [loadingDocs, setLoadingDocs] = useState(false);
+  const [clockingId, setClockingId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [contractor, setContractor] = useState<Contractor | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -464,7 +500,11 @@ export default function ContractorPage() {
         .select("*")
         .eq("contractor_id", contractorRow.id)
         .order("work_date", { ascending: false }),
-      supabase.from("events").select("id,name,venue,address,client"),
+      supabase
+        .from("events")
+        .select(
+          "id,name,venue,address,client,latitude,longitude,geofence_radius_feet"
+        ),
     ]);
 
     setContractor(contractorRow);
@@ -488,6 +528,16 @@ export default function ContractorPage() {
     }
 
     setLoading(false);
+  }
+
+  async function refreshPortal() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session?.user?.id) {
+      await loadPortal(session.user.id);
+    }
   }
 
   async function loadDocumentsForContractor(contractorId: number) {
@@ -520,6 +570,138 @@ export default function ContractorPage() {
   async function signOut() {
     await supabase.auth.signOut();
     window.location.href = "/login";
+  }
+
+  function getCurrentPosition(): Promise<GeolocationPosition> {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("Geolocation is not supported on this device."));
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      });
+    });
+  }
+
+  async function validateGeofence(event?: EventItem) {
+    if (!event?.latitude || !event?.longitude) {
+      throw new Error(
+        "This event does not have GPS coordinates set yet. Manager must add latitude and longitude before clock-in is allowed."
+      );
+    }
+
+    const position = await getCurrentPosition();
+    const userLat = position.coords.latitude;
+    const userLon = position.coords.longitude;
+    const accuracyFeet = position.coords.accuracy * 3.28084;
+
+    const allowedRadius = Number(event.geofence_radius_feet || 500);
+    const distance = distanceFeet(userLat, userLon, event.latitude, event.longitude);
+
+    if (distance > allowedRadius) {
+      throw new Error(
+        `You are ${Math.round(
+          distance
+        )} ft away from the venue. You must be within ${allowedRadius} ft to clock in/out. GPS accuracy: ${Math.round(
+          accuracyFeet
+        )} ft.`
+      );
+    }
+
+    return {
+      lat: userLat,
+      lon: userLon,
+      distance,
+      accuracyFeet,
+      locationString: `${userLat.toFixed(6)},${userLon.toFixed(
+        6
+      )} | distance ${Math.round(distance)} ft | accuracy ${Math.round(
+        accuracyFeet
+      )} ft`,
+    };
+  }
+
+  async function clockIn(row: AssignmentSummary) {
+    if (row.clock_in) {
+      setMessage("You are already clocked in for this assignment.");
+      return;
+    }
+
+    setClockingId(row.id);
+    setMessage("Checking your location...");
+
+    try {
+      const geo = await validateGeofence(row.event);
+
+      const { error } = await supabase
+        .from("assignments")
+        .update({
+          clock_in: currentTimeForDb(),
+          clock_in_location: geo.locationString,
+        })
+        .eq("id", row.id)
+        .eq("contractor_id", row.contractor_id);
+
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+
+      setMessage(
+        `Clocked in. You were ${Math.round(geo.distance)} ft from the venue.`
+      );
+      await refreshPortal();
+    } catch (error: any) {
+      setMessage(error?.message || "Could not clock in.");
+    } finally {
+      setClockingId(null);
+    }
+  }
+
+  async function clockOut(row: AssignmentSummary) {
+    if (!row.clock_in) {
+      setMessage("You must clock in before clocking out.");
+      return;
+    }
+
+    if (row.clock_out) {
+      setMessage("You are already clocked out for this assignment.");
+      return;
+    }
+
+    setClockingId(row.id);
+    setMessage("Checking your location...");
+
+    try {
+      const geo = await validateGeofence(row.event);
+
+      const { error } = await supabase
+        .from("assignments")
+        .update({
+          clock_out: currentTimeForDb(),
+          clock_out_location: geo.locationString,
+        })
+        .eq("id", row.id)
+        .eq("contractor_id", row.contractor_id);
+
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+
+      setMessage(
+        `Clocked out. You were ${Math.round(geo.distance)} ft from the venue.`
+      );
+      await refreshPortal();
+    } catch (error: any) {
+      setMessage(error?.message || "Could not clock out.");
+    } finally {
+      setClockingId(null);
+    }
   }
 
   function startEditingProfile() {
@@ -778,10 +960,12 @@ export default function ContractorPage() {
             sublabel={`${paidCount} paid`}
           />
           <MetricCard
-            icon={<FileText className="h-5 w-5" />}
-            label="Assignment Value"
-            value={money(totalValue)}
-            sublabel="Total assigned value"
+            icon={<Clock3 className="h-5 w-5" />}
+            label="Tracked Hours"
+            value={assignmentSummaries
+              .reduce((sum, row) => sum + row.hours, 0)
+              .toFixed(2)}
+            sublabel={money(totalValue)}
           />
         </div>
 
@@ -824,21 +1008,9 @@ export default function ContractorPage() {
 
             {!isEditingProfile ? (
               <div className="mt-5 grid gap-3 md:grid-cols-2">
-                <MiniInfo
-                  icon={<User className="h-4 w-4" />}
-                  label="Name"
-                  value={contractor?.name || "--"}
-                />
-                <MiniInfo
-                  icon={<Briefcase className="h-4 w-4" />}
-                  label="Role"
-                  value={contractor?.role || "--"}
-                />
-                <MiniInfo
-                  icon={<Building2 className="h-4 w-4" />}
-                  label="Company"
-                  value={contractor?.company || "--"}
-                />
+                <MiniInfo icon={<User className="h-4 w-4" />} label="Name" value={contractor?.name || "--"} />
+                <MiniInfo icon={<Briefcase className="h-4 w-4" />} label="Role" value={contractor?.role || "--"} />
+                <MiniInfo icon={<Building2 className="h-4 w-4" />} label="Company" value={contractor?.company || "--"} />
                 <MiniInfo
                   icon={<MapPin className="h-4 w-4" />}
                   label="City / State"
@@ -846,58 +1018,19 @@ export default function ContractorPage() {
                     contractor?.state ? `, ${contractor.state}` : ""
                   }`}
                 />
-                <MiniInfo
-                  icon={<Phone className="h-4 w-4" />}
-                  label="Phone"
-                  value={contractor?.phone || "--"}
-                />
-                <MiniInfo
-                  icon={<User className="h-4 w-4" />}
-                  label="Emergency Contact"
-                  value={contractor?.emergency_contact_name || "--"}
-                />
-                <MiniInfo
-                  icon={<AlertCircle className="h-4 w-4" />}
-                  label="Emergency Phone"
-                  value={contractor?.emergency_contact_phone || "--"}
-                />
-                <MiniInfo
-                  icon={<FileText className="h-4 w-4" />}
-                  label="Email"
-                  value={contractor?.email || "--"}
-                />
+                <MiniInfo icon={<Phone className="h-4 w-4" />} label="Phone" value={contractor?.phone || "--"} />
+                <MiniInfo icon={<User className="h-4 w-4" />} label="Emergency Contact" value={contractor?.emergency_contact_name || "--"} />
+                <MiniInfo icon={<AlertCircle className="h-4 w-4" />} label="Emergency Phone" value={contractor?.emergency_contact_phone || "--"} />
+                <MiniInfo icon={<FileText className="h-4 w-4" />} label="Email" value={contractor?.email || "--"} />
               </div>
             ) : (
               <div className="mt-5 grid gap-3 md:grid-cols-2">
-                <Field
-                  label="Name"
-                  value={profileForm.name}
-                  onChange={(v) => setProfileForm({ ...profileForm, name: v })}
-                />
-                <ReadOnlyField
-                  label="Role"
-                  value={contractor?.role || "Contractor"}
-                />
-                <Field
-                  label="Company"
-                  value={profileForm.company}
-                  onChange={(v) => setProfileForm({ ...profileForm, company: v })}
-                />
-                <Field
-                  label="Phone"
-                  value={profileForm.phone}
-                  onChange={(v) => setProfileForm({ ...profileForm, phone: v })}
-                />
-                <Field
-                  label="City"
-                  value={profileForm.city}
-                  onChange={(v) => setProfileForm({ ...profileForm, city: v })}
-                />
-                <Field
-                  label="State"
-                  value={profileForm.state}
-                  onChange={(v) => setProfileForm({ ...profileForm, state: v })}
-                />
+                <Field label="Name" value={profileForm.name} onChange={(v) => setProfileForm({ ...profileForm, name: v })} />
+                <ReadOnlyField label="Role" value={contractor?.role || "Contractor"} />
+                <Field label="Company" value={profileForm.company} onChange={(v) => setProfileForm({ ...profileForm, company: v })} />
+                <Field label="Phone" value={profileForm.phone} onChange={(v) => setProfileForm({ ...profileForm, phone: v })} />
+                <Field label="City" value={profileForm.city} onChange={(v) => setProfileForm({ ...profileForm, city: v })} />
+                <Field label="State" value={profileForm.state} onChange={(v) => setProfileForm({ ...profileForm, state: v })} />
                 <Field
                   label="Emergency Contact"
                   value={profileForm.emergency_contact_name}
@@ -1003,16 +1136,8 @@ export default function ContractorPage() {
                       </div>
 
                       <div className="grid gap-3 md:grid-cols-2">
-                        <MiniInfo
-                          icon={<CalendarDays className="h-4 w-4" />}
-                          label="Work Date"
-                          value={dateLabel(selectedInvoiceAssignment.work_date)}
-                        />
-                        <MiniInfo
-                          icon={<Clock3 className="h-4 w-4" />}
-                          label="Call Time"
-                          value={timeLabel(selectedInvoiceAssignment.call_time)}
-                        />
+                        <MiniInfo icon={<CalendarDays className="h-4 w-4" />} label="Work Date" value={dateLabel(selectedInvoiceAssignment.work_date)} />
+                        <MiniInfo icon={<Clock3 className="h-4 w-4" />} label="Call Time" value={timeLabel(selectedInvoiceAssignment.call_time)} />
                         <MiniInfo
                           icon={<DollarSign className="h-4 w-4" />}
                           label="Rate"
@@ -1020,11 +1145,7 @@ export default function ContractorPage() {
                             Number(selectedInvoiceAssignment.rate || 0)
                           )} / ${selectedInvoiceAssignment.rate_type || "day"}`}
                         />
-                        <MiniInfo
-                          icon={<Receipt className="h-4 w-4" />}
-                          label="Calculated Total"
-                          value={money(selectedInvoiceAssignment.total)}
-                        />
+                        <MiniInfo icon={<Receipt className="h-4 w-4" />} label="Calculated Total" value={money(selectedInvoiceAssignment.total)} />
                       </div>
                     </div>
                   ) : null}
@@ -1119,12 +1240,16 @@ export default function ContractorPage() {
               {assignmentSummaries.length ? (
                 assignmentSummaries.map((row) => {
                   const event = row.event;
+                  const directionsUrl = buildDirectionsUrl(event);
+                  const geofenceReady = !!event?.latitude && !!event?.longitude;
+                  const radius = Number(event?.geofence_radius_feet || 500);
+
                   return (
                     <div
                       key={row.id}
                       className="rounded-2xl border border-white/10 bg-black/25 p-4"
                     >
-                      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div>
                           <div className="font-semibold">
                             {row.position || "Assignment"}
@@ -1135,6 +1260,13 @@ export default function ContractorPage() {
                           </div>
                           <div className="mt-1 text-xs text-zinc-500">
                             {event?.address || ""}
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <StatusPill active={!!row.confirmed} text="Confirmed" />
+                            <StatusPill active={!!row.approved} text="Approved" />
+                            <StatusPill active={!!row.paid} text="Paid" />
+                            <StatusPill active={geofenceReady} text={geofenceReady ? `GPS Ready ${radius} ft` : "GPS Not Set"} />
                           </div>
                         </div>
 
@@ -1148,10 +1280,51 @@ export default function ContractorPage() {
                         </div>
                       </div>
 
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <StatusPill active={!!row.confirmed} text="Confirmed" />
-                        <StatusPill active={!!row.approved} text="Approved" />
-                        <StatusPill active={!!row.paid} text="Paid" />
+                      <div className="mt-4 grid gap-3 md:grid-cols-4">
+                        <MiniInfo icon={<Clock3 className="h-4 w-4" />} label="Clock In" value={timeLabel(row.clock_in)} />
+                        <MiniInfo icon={<Clock3 className="h-4 w-4" />} label="Clock Out" value={timeLabel(row.clock_out)} />
+                        <MiniInfo icon={<Clock3 className="h-4 w-4" />} label="Tracked Hours" value={row.hours.toFixed(2)} />
+                        <MiniInfo icon={<MapPin className="h-4 w-4" />} label="GPS Radius" value={geofenceReady ? `${radius} ft` : "Not Set"} />
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <a
+                          href={directionsUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+                        >
+                          <Navigation className="h-4 w-4" />
+                          Directions
+                        </a>
+
+                        {!row.clock_in ? (
+                          <button
+                            onClick={() => clockIn(row)}
+                            disabled={clockingId === row.id}
+                            className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                          >
+                            <Clock3 className="h-4 w-4" />
+                            {clockingId === row.id ? "Checking GPS..." : "Clock In"}
+                          </button>
+                        ) : null}
+
+                        {row.clock_in && !row.clock_out ? (
+                          <button
+                            onClick={() => clockOut(row)}
+                            disabled={clockingId === row.id}
+                            className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                          >
+                            <Clock3 className="h-4 w-4" />
+                            {clockingId === row.id ? "Checking GPS..." : "Clock Out"}
+                          </button>
+                        ) : null}
+
+                        {row.clock_in && row.clock_out ? (
+                          <span className="inline-flex items-center rounded-2xl border border-emerald-500/30 bg-emerald-500/20 px-4 py-3 text-sm font-semibold text-emerald-300">
+                            Shift Complete
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -1243,41 +1416,39 @@ export default function ContractorPage() {
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-300 bg-slate-100">
-                      <th className="p-3">Date</th>
-                      <th className="p-3">Position</th>
-                      <th className="p-3">Call Time</th>
-                      <th className="p-3">Hours</th>
-                      <th className="p-3">Rate</th>
-                      <th className="p-3 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-b border-slate-200">
-                      <td className="p-3">{dateLabel(selectedInvoiceAssignment.work_date)}</td>
-                      <td className="p-3">
-                        {selectedInvoiceAssignment.position || "Assignment"}
-                      </td>
-                      <td className="p-3">
-                        {timeLabel(selectedInvoiceAssignment.call_time)}
-                      </td>
-                      <td className="p-3">
-                        {selectedInvoiceAssignment.hours.toFixed(2)}
-                      </td>
-                      <td className="p-3">
-                        {money(Number(selectedInvoiceAssignment.rate || 0))} /{" "}
-                        {selectedInvoiceAssignment.rate_type || "day"}
-                      </td>
-                      <td className="p-3 text-right font-semibold">
-                        {money(selectedInvoiceAssignment.total)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <table className="w-full border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-300 bg-slate-100">
+                    <th className="p-3">Date</th>
+                    <th className="p-3">Position</th>
+                    <th className="p-3">Call Time</th>
+                    <th className="p-3">Hours</th>
+                    <th className="p-3">Rate</th>
+                    <th className="p-3 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-200">
+                    <td className="p-3">{dateLabel(selectedInvoiceAssignment.work_date)}</td>
+                    <td className="p-3">
+                      {selectedInvoiceAssignment.position || "Assignment"}
+                    </td>
+                    <td className="p-3">
+                      {timeLabel(selectedInvoiceAssignment.call_time)}
+                    </td>
+                    <td className="p-3">
+                      {selectedInvoiceAssignment.hours.toFixed(2)}
+                    </td>
+                    <td className="p-3">
+                      {money(Number(selectedInvoiceAssignment.rate || 0))} /{" "}
+                      {selectedInvoiceAssignment.rate_type || "day"}
+                    </td>
+                    <td className="p-3 text-right font-semibold">
+                      {money(selectedInvoiceAssignment.total)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 p-4">
@@ -1325,11 +1496,7 @@ export default function ContractorPage() {
   );
 }
 
-function GlassCard({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function GlassCard({ children }: { children: React.ReactNode }) {
   return (
     <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl">
       {children}
