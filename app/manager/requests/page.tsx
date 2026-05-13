@@ -287,7 +287,7 @@ export default function ManagerRequestsPage() {
   }
 
   async function confirmResponder(request: CrewRequest, response: CrewResponse) {
-    if (request.filled_slots >= request.slots) {
+    if (request.filled_slots >= request.slots || request.status === "Filled") {
       setMessage("This request is already filled.");
       return;
     }
@@ -311,12 +311,15 @@ export default function ManagerRequestsPage() {
       return;
     }
 
+    const nextFilledSlots = request.filled_slots + 1;
+    const isFilled = nextFilledSlots >= request.slots;
+
     const updateRequest = await supabase
       .from("crew_position_requests")
       .update({
-        filled_slots: request.filled_slots + 1,
+        filled_slots: nextFilledSlots,
         selected_contractor_id: response.contractor_id,
-        status: request.filled_slots + 1 >= request.slots ? "Filled" : "Open",
+        status: isFilled ? "Filled" : "Open",
       })
       .eq("id", request.id);
 
@@ -337,7 +340,7 @@ export default function ManagerRequestsPage() {
       return;
     }
 
-    setMessage("Responder confirmed and assigned.");
+    setMessage("Responder confirmed and request marked filled.");
     await loadAll();
   }
 
@@ -373,6 +376,9 @@ export default function ManagerRequestsPage() {
     });
     return map;
   }, [responses]);
+
+  const openRequests = requests.filter((request) => request.status !== "Filled");
+  const filledRequests = requests.filter((request) => request.status === "Filled");
 
   if (status !== "allowed") {
     return (
@@ -433,10 +439,30 @@ export default function ManagerRequestsPage() {
         ) : (
           <div className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <MetricCard icon={<ClipboardList className="h-5 w-5" />} label="Requests" value={String(requests.length)} sublabel="Published crew requests" />
-              <MetricCard icon={<Users className="h-5 w-5" />} label="Responses" value={String(responses.length)} sublabel="All contractor replies" />
-              <MetricCard icon={<CalendarDays className="h-5 w-5" />} label="Availability Rows" value={String(availability.length)} sublabel="Manual availability submissions" />
-              <MetricCard icon={<CheckCircle2 className="h-5 w-5" />} label="Filled Requests" value={String(requests.filter((r) => r.status === "Filled").length)} sublabel="Manager confirmed" />
+              <MetricCard
+                icon={<ClipboardList className="h-5 w-5" />}
+                label="Open Requests"
+                value={String(openRequests.length)}
+                sublabel="Still accepting responses"
+              />
+              <MetricCard
+                icon={<CheckCircle2 className="h-5 w-5" />}
+                label="Filled Requests"
+                value={String(filledRequests.length)}
+                sublabel="Completed postings"
+              />
+              <MetricCard
+                icon={<Users className="h-5 w-5" />}
+                label="Responses"
+                value={String(responses.length)}
+                sublabel="All contractor replies"
+              />
+              <MetricCard
+                icon={<CalendarDays className="h-5 w-5" />}
+                label="Availability Rows"
+                value={String(availability.length)}
+                sublabel="Manual availability submissions"
+              />
             </div>
 
             <GlassCard>
@@ -603,8 +629,8 @@ export default function ManagerRequestsPage() {
               </div>
 
               <div className="space-y-4">
-                {requests.length ? (
-                  requests.map((request) => {
+                {openRequests.length ? (
+                  openRequests.map((request) => {
                     const requestResponses = responsesByRequest[request.id] || [];
                     const availableResponses = requestResponses.filter(
                       (r) =>
@@ -641,10 +667,26 @@ export default function ManagerRequestsPage() {
                         </div>
 
                         <div className="mb-4 grid gap-3 md:grid-cols-4">
-                          <MiniInfo icon={<CalendarDays className="h-4 w-4" />} label="Work Date" value={dateLabel(request.work_date)} />
-                          <MiniInfo icon={<Clock3 className="h-4 w-4" />} label="Call Time" value={timeLabel(request.call_time)} />
-                          <MiniInfo icon={<DollarSign className="h-4 w-4" />} label="Status" value={request.status} />
-                          <MiniInfo icon={<Users className="h-4 w-4" />} label="Responses" value={String(requestResponses.length)} />
+                          <MiniInfo
+                            icon={<CalendarDays className="h-4 w-4" />}
+                            label="Work Date"
+                            value={dateLabel(request.work_date)}
+                          />
+                          <MiniInfo
+                            icon={<Clock3 className="h-4 w-4" />}
+                            label="Call Time"
+                            value={timeLabel(request.call_time)}
+                          />
+                          <MiniInfo
+                            icon={<DollarSign className="h-4 w-4" />}
+                            label="Status"
+                            value={request.status}
+                          />
+                          <MiniInfo
+                            icon={<Users className="h-4 w-4" />}
+                            label="Responses"
+                            value={String(requestResponses.length)}
+                          />
                         </div>
 
                         {request.notes ? (
@@ -657,6 +699,10 @@ export default function ManagerRequestsPage() {
                           {availableResponses.length ? (
                             availableResponses.map((response) => {
                               const contractor = contractorMap[response.contractor_id];
+                              const isAlreadyConfirmed =
+                                request.status === "Filled" ||
+                                response.response_status === "confirmed";
+
                               return (
                                 <div
                                   key={response.id}
@@ -676,13 +722,19 @@ export default function ManagerRequestsPage() {
                                     </div>
                                   </div>
 
-                                  <button
-                                    onClick={() => confirmResponder(request, response)}
-                                    disabled={request.filled_slots >= request.slots}
-                                    className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black disabled:opacity-50"
-                                  >
-                                    Confirm for Position
-                                  </button>
+                                  {isAlreadyConfirmed ? (
+                                    <span className="inline-flex items-center rounded-2xl border border-emerald-500/30 bg-emerald-500/20 px-4 py-3 text-sm font-semibold text-emerald-300">
+                                      Filled
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() => confirmResponder(request, response)}
+                                      disabled={request.filled_slots >= request.slots}
+                                      className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black disabled:opacity-50"
+                                    >
+                                      Confirm for Position
+                                    </button>
+                                  )}
                                 </div>
                               );
                             })
@@ -694,7 +746,43 @@ export default function ManagerRequestsPage() {
                     );
                   })
                 ) : (
-                  <EmptyState text="No published requests yet." />
+                  <EmptyState text="No live open requests right now." />
+                )}
+              </div>
+            </GlassCard>
+
+            <GlassCard>
+              <SectionTitle
+                icon={<CheckCircle2 className="h-5 w-5" />}
+                title="Filled Requests"
+                subtitle="Completed position postings"
+              />
+              <div className="mt-5 space-y-3">
+                {filledRequests.length ? (
+                  filledRequests.map((request) => (
+                    <div
+                      key={request.id}
+                      className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4"
+                    >
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="font-semibold text-white">{request.title}</div>
+                          <div className="text-sm text-zinc-300">
+                            {request.position} · {eventMap[request.event_id]?.name || "Event"}
+                          </div>
+                          <div className="text-xs text-zinc-400">
+                            {dateLabel(request.work_date)} · {timeLabel(request.call_time)}
+                          </div>
+                        </div>
+
+                        <span className="inline-flex items-center rounded-2xl border border-emerald-500/30 bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-300">
+                          Filled
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <EmptyState text="No filled requests yet." />
                 )}
               </div>
             </GlassCard>
