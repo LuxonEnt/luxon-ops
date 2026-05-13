@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import {
   Activity,
@@ -101,6 +102,20 @@ type StoredDoc = {
   updated_at?: string;
 };
 
+type CrewRequest = {
+  id: number;
+  event_id: number;
+  title: string;
+  position: string;
+  work_date?: string | null;
+  call_time?: string | null;
+  rate?: number | null;
+  rate_type?: string | null;
+  slots?: number | null;
+  filled_slots?: number | null;
+  status?: string | null;
+};
+
 type TabKey =
   | "overview"
   | "schedule"
@@ -188,6 +203,7 @@ export default function ManagerPage() {
   const [availability, setAvailability] = useState<AvailabilityItem[]>([]);
   const [documents, setDocuments] = useState<StoredDoc[]>([]);
   const [documentErrors, setDocumentErrors] = useState<string[]>([]);
+  const [crewRequests, setCrewRequests] = useState<CrewRequest[]>([]);
 
   const [newEvent, setNewEvent] = useState({
     name: "",
@@ -237,16 +253,6 @@ export default function ManagerPage() {
   const [invoiceEventId, setInvoiceEventId] = useState("");
   const [invoiceContractorId, setInvoiceContractorId] = useState("");
 
-  const [quickAssignForm, setQuickAssignForm] = useState({
-    event_id: "",
-    contractor_id: "",
-    position: "",
-    work_date: "",
-    call_time: "",
-    rate: "",
-    rate_type: "day",
-  });
-
   useEffect(() => {
     async function checkManagerAccess() {
       const {
@@ -294,17 +300,22 @@ export default function ManagerPage() {
       { data: contractorsData, error: contractorsError },
       { data: assignmentsData, error: assignmentsError },
       { data: availabilityData, error: availabilityError },
+      { data: crewRequestsData, error: crewRequestsError },
     ] = await Promise.all([
       supabase.from("events").select("*").order("start_date", { ascending: false }),
       supabase.from("contractors").select("*").order("name", { ascending: true }),
       supabase.from("assignments").select("*").order("work_date", { ascending: false }),
-      supabase
-        .from("contractor_availability")
-        .select("*")
-        .order("created_at", { ascending: false }),
+      supabase.from("contractor_availability").select("*").order("created_at", { ascending: false }),
+      supabase.from("crew_position_requests").select("*").order("created_at", { ascending: false }),
     ]);
 
-    if (eventsError || contractorsError || assignmentsError || availabilityError) {
+    if (
+      eventsError ||
+      contractorsError ||
+      assignmentsError ||
+      availabilityError ||
+      crewRequestsError
+    ) {
       setMessage("Could not load manager data.");
       setLoadingData(false);
       return;
@@ -314,11 +325,13 @@ export default function ManagerPage() {
     const nextContractors = contractorsData || [];
     const nextAssignments = assignmentsData || [];
     const nextAvailability = availabilityData || [];
+    const nextRequests = crewRequestsData || [];
 
     setEvents(nextEvents);
     setContractors(nextContractors);
     setAssignments(nextAssignments);
     setAvailability(nextAvailability);
+    setCrewRequests(nextRequests);
 
     if (!invoiceEventId && nextEvents[0]) {
       setInvoiceEventId(String(nextEvents[0].id));
@@ -326,13 +339,6 @@ export default function ManagerPage() {
 
     if (!invoiceContractorId && nextContractors[0]) {
       setInvoiceContractorId(String(nextContractors[0].id));
-    }
-
-    if (!quickAssignForm.event_id && nextEvents[0]) {
-      setQuickAssignForm((prev) => ({
-        ...prev,
-        event_id: String(nextEvents[0].id),
-      }));
     }
 
     await loadDocuments(nextContractors);
@@ -577,58 +583,6 @@ export default function ManagerPage() {
     await loadData();
   }
 
-  async function quickAssignAvailability() {
-    if (
-      !quickAssignForm.event_id ||
-      !quickAssignForm.contractor_id ||
-      !quickAssignForm.position.trim()
-    ) {
-      setMessage("Event, contractor, and position are required.");
-      return;
-    }
-
-    const { error } = await supabase.from("assignments").insert({
-      event_id: Number(quickAssignForm.event_id),
-      contractor_id: Number(quickAssignForm.contractor_id),
-      position: quickAssignForm.position.trim(),
-      work_date: quickAssignForm.work_date || null,
-      call_time: quickAssignForm.call_time || null,
-      break_hours: 1,
-      rate: Number(quickAssignForm.rate || 0),
-      rate_type: quickAssignForm.rate_type,
-      confirmed: true,
-      approved: false,
-      paid: false,
-    });
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    setMessage("Contractor confirmed and assigned to event.");
-    setQuickAssignForm((prev) => ({
-      ...prev,
-      contractor_id: "",
-      position: "",
-      work_date: "",
-      call_time: "",
-      rate: "",
-      rate_type: "day",
-    }));
-    await loadData();
-  }
-
-  function useAvailabilityPerson(item: AvailabilityItem) {
-    setActiveTab("documents");
-    setQuickAssignForm((prev) => ({
-      ...prev,
-      contractor_id: String(item.contractor_id),
-      work_date: item.start_date || prev.work_date,
-    }));
-    setMessage("Contractor loaded into confirm form below.");
-  }
-
   async function updateEventField(
     id: number,
     field: keyof EventItem,
@@ -774,6 +728,8 @@ export default function ManagerPage() {
   const unpaidCount = payrollRows.filter((row) => !row.paid).length;
   const approvedCount = payrollRows.filter((row) => row.approved).length;
 
+  const openRequests = crewRequests.filter((r) => (r.status || "Open") !== "Filled");
+
   const upcomingEvents = [...events]
     .filter((event) => event.start_date)
     .sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)));
@@ -807,7 +763,9 @@ export default function ManagerPage() {
   );
 
   const filteredAssignments = payrollRows.filter((row) => {
-    const matchesSearch = `${row.contractor?.name || ""} ${row.event?.name || ""} ${row.position || ""}`
+    const matchesSearch = `${row.contractor?.name || ""} ${row.event?.name || ""} ${
+      row.position || ""
+    }`
       .toLowerCase()
       .includes(search.toLowerCase());
 
@@ -816,13 +774,16 @@ export default function ManagerPage() {
     if (assignmentFilter === "confirmed") return !!row.confirmed;
     if (assignmentFilter === "approved") return !!row.approved;
     if (assignmentFilter === "paid") return !!row.paid;
-    if (assignmentFilter === "pending") return !row.confirmed || !row.approved || !row.paid;
+    if (assignmentFilter === "pending")
+      return !row.confirmed || !row.approved || !row.paid;
 
     return true;
   });
 
   const filteredPayrollRows = payrollRows.filter((row) => {
-    const matchesSearch = `${row.contractor?.name || ""} ${row.event?.name || ""} ${row.position || ""}`
+    const matchesSearch = `${row.contractor?.name || ""} ${row.event?.name || ""} ${
+      row.position || ""
+    }`
       .toLowerCase()
       .includes(search.toLowerCase());
 
@@ -844,7 +805,7 @@ export default function ManagerPage() {
     const contractorName = contractorMap[item.contractor_id]?.name || "";
     return `${contractorName} ${item.availability_status} ${item.notes || ""}`
       .toLowerCase()
-      .includes(search.toLowerCase());
+      .includes(search.toLowerCase())
   });
 
   const invoiceRows = payrollRows.filter(
@@ -943,7 +904,7 @@ export default function ManagerPage() {
               <MetricCard icon={<Users className="h-5 w-5" />} label="Contractors" value={String(contractors.length)} sublabel="Rostered crew" />
               <MetricCard icon={<ClipboardList className="h-5 w-5" />} label="Assignments" value={String(assignments.length)} sublabel={`${approvedCount} approved records`} />
               <MetricCard icon={<DollarSign className="h-5 w-5" />} label="Payroll" value={money(totalPayroll)} sublabel={`${unpaidCount} unpaid items`} />
-              <MetricCard icon={<FolderOpen className="h-5 w-5" />} label="Documents" value={String(documents.length)} sublabel={`${availability.length} availability rows`} />
+              <MetricCard icon={<FolderOpen className="h-5 w-5" />} label="Open Requests" value={String(openRequests.length)} sublabel={`${availability.length} availability rows`} />
             </div>
 
             <div className="grid gap-6 xl:grid-cols-3">
@@ -981,32 +942,33 @@ export default function ManagerPage() {
 
               <GlassCard>
                 <SectionTitle
-                  icon={<CalendarDays className="h-5 w-5" />}
-                  title="Upcoming Events"
-                  subtitle="Next jobs on deck"
+                  icon={<ClipboardList className="h-5 w-5" />}
+                  title="Open Position Requests"
+                  subtitle="Create positions without selecting a contractor"
                 />
                 <div className="mt-5 space-y-3">
-                  {upcomingEvents.slice(0, 5).length ? (
-                    upcomingEvents.slice(0, 5).map((event) => (
-                      <div key={event.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                        <div className="mb-2 flex items-start justify-between gap-3">
-                          <div className="font-semibold">{event.name}</div>
-                          <span className={`rounded-full border px-2.5 py-1 text-[11px] ${eventTone(event.status)}`}>
-                            {event.status || "Scheduled"}
-                          </span>
-                        </div>
+                  {openRequests.slice(0, 4).length ? (
+                    openRequests.slice(0, 4).map((request) => (
+                      <div key={request.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                        <div className="font-semibold">{request.title}</div>
                         <div className="text-sm text-zinc-400">
-                          {event.client || "No client"} {event.venue ? `· ${event.venue}` : ""}
+                          {request.position} · {eventMap[request.event_id]?.name || "Event"}
                         </div>
-                        <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
-                          <CalendarDays className="h-3.5 w-3.5" />
-                          {dateLabel(event.start_date)} - {dateLabel(event.end_date)}
+                        <div className="mt-1 text-xs text-zinc-500">
+                          {dateLabel(request.work_date)} · {timeLabel(request.call_time)}
                         </div>
                       </div>
                     ))
                   ) : (
-                    <EmptyState text="No upcoming events yet." />
+                    <EmptyState text="No open position requests yet." />
                   )}
+                  <Link
+                    href="/manager/requests"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+                  >
+                    <UserCheck className="h-4 w-4" />
+                    Open Requests Page
+                  </Link>
                 </div>
               </GlassCard>
             </div>
@@ -1216,9 +1178,50 @@ export default function ManagerPage() {
 
         {activeTab === "assignments" && !loadingData && (
           <div className="space-y-6">
+            <GlassCard>
+              <SectionTitle
+                icon={<UserCheck className="h-5 w-5" />}
+                title="Open Position Posting"
+                subtitle="Create a position for all contractors without selecting anyone first"
+              />
+              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                  <div className="text-sm font-semibold">How this works</div>
+                  <div className="mt-2 text-sm text-zinc-400">
+                    Use the Requests page to post open positions to all contractors.
+                    They can respond available, and then you confirm the one you want later.
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                  <div className="text-sm font-semibold">No contractor required</div>
+                  <div className="mt-2 text-sm text-zinc-400">
+                    This is different from direct assignments. It is a position posting workflow.
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                  <div className="text-sm font-semibold">Open requests</div>
+                  <div className="mt-2 text-3xl font-bold text-amber-300">
+                    {openRequests.length}
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <Link
+                    href="/manager/requests"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+                  >
+                    <UserCheck className="h-4 w-4" />
+                    Go to Open Position Requests
+                  </Link>
+                </div>
+              </div>
+            </GlassCard>
+
             <div className="grid gap-6 xl:grid-cols-2">
               <GlassCard>
-                <SectionTitle icon={<Plus className="h-5 w-5" />} title="Create Assignment" subtitle="Assign one contractor to one event" />
+                <SectionTitle icon={<Plus className="h-5 w-5" />} title="Create Assignment" subtitle="Directly assign one contractor to one event" />
                 <div className="mt-5 space-y-3">
                   <SelectField
                     label="Event"
@@ -1318,57 +1321,36 @@ export default function ManagerPage() {
             </div>
 
             <GlassCard>
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <SectionTitle icon={<Filter className="h-5 w-5" />} title="Assignments" subtitle={`${filteredAssignments.length} matching results`} />
-                <div className="w-full md:w-56">
-                  <SimpleSelect
-                    label="Filter"
-                    value={assignmentFilter}
-                    onChange={setAssignmentFilter}
-                    options={[
-                      { value: "all", label: "All" },
-                      { value: "pending", label: "Pending" },
-                      { value: "confirmed", label: "Confirmed" },
-                      { value: "approved", label: "Approved" },
-                      { value: "paid", label: "Paid" },
-                    ]}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-5 space-y-4">
-                {filteredAssignments.length ? (
-                  filteredAssignments.map((row) => (
-                    <EntityCard
-                      key={row.id}
-                      title={row.position || "Assignment"}
-                      subtitle={`${row.contractor?.name || "Contractor"} · ${row.event?.name || "Event"}`}
-                      onDelete={() => removeAssignment(row.id)}
-                      rightBadge={<StatusStack row={row} />}
-                    >
-                      <div className="mb-4 grid gap-3 md:grid-cols-4">
-                        <MiniInfo icon={<CalendarDays className="h-4 w-4" />} label="Work Date" value={dateLabel(row.work_date)} />
-                        <MiniInfo icon={<Clock3 className="h-4 w-4" />} label="Call Time" value={timeLabel(row.call_time)} />
-                        <MiniInfo icon={<Briefcase className="h-4 w-4" />} label="Contractor" value={row.contractor?.name || "--"} />
-                        <MiniInfo icon={<BadgeDollarSign className="h-4 w-4" />} label="Rate" value={`${money(Number(row.rate || 0))} / ${row.rate_type || "day"}`} />
+              <SectionTitle
+                icon={<ClipboardList className="h-5 w-5" />}
+                title="Open Position Requests"
+                subtitle="These are posted to all contractors"
+              />
+              <div className="mt-5 space-y-3">
+                {openRequests.length ? (
+                  openRequests.map((request) => (
+                    <div key={request.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="font-semibold">{request.title}</div>
+                          <div className="text-sm text-zinc-400">
+                            {request.position} · {eventMap[request.event_id]?.name || "Event"}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {dateLabel(request.work_date)} · {timeLabel(request.call_time)} · {money(Number(request.rate || 0))}/{request.rate_type || "day"}
+                          </div>
+                        </div>
+                        <Link
+                          href="/manager/requests"
+                          className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
+                        >
+                          Review Responses
+                        </Link>
                       </div>
-
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <Field label="Position" value={row.position || ""} onChange={(v) => updateAssignmentField(row.id, "position", v)} />
-                        <Field label="Work Date" type="date" value={row.work_date || ""} onChange={(v) => updateAssignmentField(row.id, "work_date", v)} />
-                        <Field label="Call Time" type="time" value={String(row.call_time || "").slice(0, 5)} onChange={(v) => updateAssignmentField(row.id, "call_time", v)} />
-                        <Field label="Rate" type="number" value={String(row.rate || 0)} onChange={(v) => updateAssignmentField(row.id, "rate", v)} />
-                      </div>
-
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <ToggleButton active={!!row.confirmed} label="Confirmed" onClick={() => updateAssignmentField(row.id, "confirmed", !row.confirmed)} />
-                        <ToggleButton active={!!row.approved} label="Approved" onClick={() => updateAssignmentField(row.id, "approved", !row.approved)} />
-                        <ToggleButton active={!!row.paid} label="Paid" onClick={() => updateAssignmentField(row.id, "paid", !row.paid)} />
-                      </div>
-                    </EntityCard>
+                    </div>
                   ))
                 ) : (
-                  <EmptyState text="No assignments found." />
+                  <EmptyState text="No open position requests yet." />
                 )}
               </div>
             </GlassCard>
@@ -1596,65 +1578,6 @@ export default function ManagerPage() {
 
         {activeTab === "documents" && !loadingData && (
           <div className="space-y-6">
-            <GlassCard>
-              <SectionTitle
-                icon={<UserCheck className="h-5 w-5" />}
-                title="Confirm Contractor from Availability"
-                subtitle="Select event details and confirm someone directly"
-              />
-              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <SelectField
-                  label="Event"
-                  value={quickAssignForm.event_id}
-                  onChange={(v) => setQuickAssignForm({ ...quickAssignForm, event_id: v })}
-                  options={events.map((e) => ({ value: String(e.id), label: e.name }))}
-                />
-                <SelectField
-                  label="Contractor"
-                  value={quickAssignForm.contractor_id}
-                  onChange={(v) => setQuickAssignForm({ ...quickAssignForm, contractor_id: v })}
-                  options={contractors.map((c) => ({ value: String(c.id), label: c.name }))}
-                />
-                <Field
-                  label="Position"
-                  value={quickAssignForm.position}
-                  onChange={(v) => setQuickAssignForm({ ...quickAssignForm, position: v })}
-                />
-                <Field
-                  label="Work Date"
-                  type="date"
-                  value={quickAssignForm.work_date}
-                  onChange={(v) => setQuickAssignForm({ ...quickAssignForm, work_date: v })}
-                />
-                <Field
-                  label="Call Time"
-                  type="time"
-                  value={quickAssignForm.call_time}
-                  onChange={(v) => setQuickAssignForm({ ...quickAssignForm, call_time: v })}
-                />
-                <Field
-                  label="Rate"
-                  type="number"
-                  value={quickAssignForm.rate}
-                  onChange={(v) => setQuickAssignForm({ ...quickAssignForm, rate: v })}
-                />
-                <SelectField
-                  label="Rate Type"
-                  value={quickAssignForm.rate_type}
-                  onChange={(v) => setQuickAssignForm({ ...quickAssignForm, rate_type: v })}
-                  options={["day", "hour"]}
-                />
-                <div className="flex items-end">
-                  <button
-                    onClick={quickAssignAvailability}
-                    className="w-full rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
-                  >
-                    Confirm to Event
-                  </button>
-                </div>
-              </div>
-            </GlassCard>
-
             <div className="grid gap-6 xl:grid-cols-2">
               <GlassCard>
                 <div className="flex items-start justify-between gap-4">
@@ -1741,12 +1664,14 @@ export default function ManagerPage() {
                             </div>
                           </div>
 
-                          <button
-                            onClick={() => useAvailabilityPerson(row)}
-                            className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-semibold text-black"
-                          >
-                            Load into Confirm Form
-                          </button>
+                          <div className="flex gap-2">
+                            <Link
+                              href="/manager/requests"
+                              className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+                            >
+                              Confirm on Requests Page
+                            </Link>
+                          </div>
                         </div>
                       </div>
                     ))
