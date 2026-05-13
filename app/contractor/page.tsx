@@ -1,25 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import {
+  AlertCircle,
   Briefcase,
   Building2,
   CalendarDays,
   Clock3,
   DollarSign,
+  Download,
+  Eye,
   FileText,
   LogOut,
   MapPin,
   Pencil,
+  Phone,
+  Receipt,
   Save,
   ShieldCheck,
   Sparkles,
   Upload,
   User,
-  Phone,
-  AlertCircle,
 } from "lucide-react";
 
 type Contractor = {
@@ -61,6 +64,14 @@ type EventItem = {
   name: string;
   venue?: string | null;
   address?: string | null;
+  client?: string | null;
+};
+
+type StoredDoc = {
+  name: string;
+  path: string;
+  updated_at?: string;
+  size?: number;
 };
 
 function money(value: number) {
@@ -89,14 +100,42 @@ function timeLabel(value?: string | null) {
   });
 }
 
+function hoursBetween(
+  start?: string | null,
+  end?: string | null,
+  breakHours = 0
+) {
+  if (!start || !end) return 0;
+  const [sh, sm] = String(start).slice(0, 5).split(":").map(Number);
+  const [eh, em] = String(end).slice(0, 5).split(":").map(Number);
+  let startMins = sh * 60 + sm;
+  let endMins = eh * 60 + em;
+  if (endMins < startMins) endMins += 24 * 60;
+  return Math.max(0, (endMins - startMins) / 60 - Number(breakHours || 0));
+}
+
+function fileSizeLabel(size?: number) {
+  if (!size && size !== 0) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function ContractorPage() {
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [loadingDocs, setLoadingDocs] = useState(false);
   const [message, setMessage] = useState("");
   const [contractor, setContractor] = useState<Contractor | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [documents, setDocuments] = useState<StoredDoc[]>([]);
+  const [selectedInvoiceAssignmentId, setSelectedInvoiceAssignmentId] = useState<string>("");
+  const [selectedInvoiceView, setSelectedInvoiceView] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [profileForm, setProfileForm] = useState({
     name: "",
@@ -146,7 +185,7 @@ export default function ContractorPage() {
         .select("*")
         .eq("contractor_id", contractorRow.id)
         .order("work_date", { ascending: false }),
-      supabase.from("events").select("id,name,venue,address"),
+      supabase.from("events").select("id,name,venue,address,client"),
     ]);
 
     setContractor(contractorRow);
@@ -161,7 +200,42 @@ export default function ContractorPage() {
       emergency_contact_name: contractorRow.emergency_contact_name || "",
       emergency_contact_phone: contractorRow.emergency_contact_phone || "",
     });
+
+    await loadDocumentsForContractor(contractorRow.id);
+
+    const approved = (assignmentRows || []).filter((row) => row.approved);
+    if (approved[0]) {
+      setSelectedInvoiceAssignmentId(String(approved[0].id));
+    }
+
     setLoading(false);
+  }
+
+  async function loadDocumentsForContractor(contractorId: number) {
+    setLoadingDocs(true);
+
+    const { data, error } = await supabase.storage
+      .from("contractor-documents")
+      .list(String(contractorId), {
+        limit: 100,
+        sortBy: { column: "updated_at", order: "desc" },
+      });
+
+    if (error) {
+      setLoadingDocs(false);
+      return;
+    }
+
+    setDocuments(
+      (data || []).map((item: any) => ({
+        name: item.name,
+        path: `${contractorId}/${item.name}`,
+        updated_at: item.updated_at,
+        size: item.metadata?.size ?? item.size,
+      }))
+    );
+
+    setLoadingDocs(false);
   }
 
   async function signOut() {
@@ -237,6 +311,63 @@ export default function ContractorPage() {
     setMessage("Profile updated.");
   }
 
+  async function uploadDocument(file: File) {
+    if (!contractor) return;
+
+    setUploadingDoc(true);
+    setMessage("");
+
+    const safeName = `${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
+    const path = `${contractor.id}/${safeName}`;
+
+    const { error } = await supabase.storage
+      .from("contractor-documents")
+      .upload(path, file, {
+        upsert: false,
+      });
+
+    setUploadingDoc(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    await loadDocumentsForContractor(contractor.id);
+    setMessage("Document uploaded.");
+  }
+
+  async function openDocument(path: string) {
+    const { data, error } = await supabase.storage
+      .from("contractor-documents")
+      .createSignedUrl(path, 120);
+
+    if (error || !data?.signedUrl) {
+      setMessage("Could not open file.");
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank");
+  }
+
+  async function downloadDocument(path: string, name: string) {
+    const { data, error } = await supabase.storage
+      .from("contractor-documents")
+      .download(path);
+
+    if (error || !data) {
+      setMessage("Could not download file.");
+      return;
+    }
+
+    const url = URL.createObjectURL(data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const eventMap = useMemo(() => {
     const map: Record<number, EventItem> = {};
     events.forEach((event) => {
@@ -245,11 +376,30 @@ export default function ContractorPage() {
     return map;
   }, [events]);
 
-  const totalValue = assignments.reduce(
-    (sum, row) => sum + Number(row.rate || 0),
-    0
-  );
-  const paidCount = assignments.filter((row) => row.paid).length;
+  const assignmentSummaries = useMemo(() => {
+    return assignments.map((row) => {
+      const hours = hoursBetween(row.clock_in, row.clock_out, row.break_hours || 0);
+      const total =
+        row.rate_type === "hour"
+          ? hours * Number(row.rate || 0)
+          : Number(row.rate || 0);
+
+      return {
+        ...row,
+        hours,
+        total,
+        event: eventMap[row.event_id],
+      };
+    });
+  }, [assignments, eventMap]);
+
+  const totalValue = assignmentSummaries.reduce((sum, row) => sum + row.total, 0);
+  const paidCount = assignmentSummaries.filter((row) => row.paid).length;
+  const approvedAssignments = assignmentSummaries.filter((row) => row.approved);
+  const selectedInvoiceAssignment =
+    approvedAssignments.find(
+      (row) => String(row.id) === selectedInvoiceAssignmentId
+    ) || approvedAssignments[0] || null;
 
   if (loading) {
     return (
@@ -324,7 +474,7 @@ export default function ContractorPage() {
           <MetricCard
             icon={<CalendarDays className="h-5 w-5" />}
             label="Assignments"
-            value={String(assignments.length)}
+            value={String(assignmentSummaries.length)}
             sublabel={`${paidCount} paid`}
           />
           <MetricCard
@@ -424,7 +574,10 @@ export default function ContractorPage() {
                   value={profileForm.name}
                   onChange={(v) => setProfileForm({ ...profileForm, name: v })}
                 />
-                <ReadOnlyField label="Role" value={contractor?.role || "Contractor"} />
+                <ReadOnlyField
+                  label="Role"
+                  value={contractor?.role || "Contractor"}
+                />
                 <Field
                   label="Company"
                   value={profileForm.company}
@@ -487,6 +640,176 @@ export default function ContractorPage() {
           </GlassCard>
         </div>
 
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1fr]">
+          <GlassCard>
+            <div className="flex items-start justify-between gap-4">
+              <SectionTitle
+                icon={<Receipt className="h-5 w-5" />}
+                title="Approved Invoice / Pay Stub"
+                subtitle="View and download approved assignment records"
+              />
+              {selectedInvoiceAssignment ? (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSelectedInvoiceView(true)}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+                  >
+                    <Eye className="h-4 w-4" />
+                    View
+                  </button>
+                  <button
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-semibold text-black"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {approvedAssignments.length ? (
+                <>
+                  <SelectField
+                    label="Approved Assignment"
+                    value={selectedInvoiceAssignmentId}
+                    onChange={setSelectedInvoiceAssignmentId}
+                    options={approvedAssignments.map((row) => ({
+                      value: String(row.id),
+                      label: `${row.position || "Assignment"} · ${
+                        row.event?.name || "Event"
+                      } · ${dateLabel(row.work_date)}`,
+                    }))}
+                  />
+
+                  {selectedInvoiceAssignment ? (
+                    <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-semibold">
+                            {selectedInvoiceAssignment.position || "Assignment"}
+                          </div>
+                          <div className="text-sm text-zinc-400">
+                            {selectedInvoiceAssignment.event?.name || "Event"}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-semibold text-amber-300">
+                            {money(selectedInvoiceAssignment.total)}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            Approved
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <MiniInfo
+                          icon={<CalendarDays className="h-4 w-4" />}
+                          label="Work Date"
+                          value={dateLabel(selectedInvoiceAssignment.work_date)}
+                        />
+                        <MiniInfo
+                          icon={<Clock3 className="h-4 w-4" />}
+                          label="Call Time"
+                          value={timeLabel(selectedInvoiceAssignment.call_time)}
+                        />
+                        <MiniInfo
+                          icon={<DollarSign className="h-4 w-4" />}
+                          label="Rate"
+                          value={`${money(
+                            Number(selectedInvoiceAssignment.rate || 0)
+                          )} / ${selectedInvoiceAssignment.rate_type || "day"}`}
+                        />
+                        <MiniInfo
+                          icon={<Receipt className="h-4 w-4" />}
+                          label="Calculated Total"
+                          value={money(selectedInvoiceAssignment.total)}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <EmptyState text="No approved invoice items yet." />
+              )}
+            </div>
+          </GlassCard>
+
+          <GlassCard>
+            <div className="flex items-start justify-between gap-4">
+              <SectionTitle
+                icon={<Upload className="h-5 w-5" />}
+                title="Documents / Receipts"
+                subtitle="Upload receipts, backup, and files for manager review"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingDoc}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                >
+                  <Upload className="h-4 w-4" />
+                  {uploadingDoc ? "Uploading..." : "Upload File"}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      void uploadDocument(file);
+                    }
+                    e.currentTarget.value = "";
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {loadingDocs ? (
+                <EmptyState text="Loading documents..." />
+              ) : documents.length ? (
+                documents.map((doc) => (
+                  <div
+                    key={doc.path}
+                    className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/25 p-4 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div>
+                      <div className="font-medium">{doc.name}</div>
+                      <div className="text-xs text-zinc-500">
+                        {doc.updated_at
+                          ? new Date(doc.updated_at).toLocaleString()
+                          : ""}
+                        {doc.size ? ` · ${fileSizeLabel(doc.size)}` : ""}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => openDocument(doc.path)}
+                        className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={() => downloadDocument(doc.path, doc.name)}
+                        className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
+                      >
+                        Download
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState text="No documents uploaded yet." />
+              )}
+            </div>
+          </GlassCard>
+        </div>
+
         <div className="mt-6">
           <GlassCard>
             <SectionTitle
@@ -495,9 +818,9 @@ export default function ContractorPage() {
               subtitle="Confirmed and scheduled work"
             />
             <div className="mt-5 space-y-3">
-              {assignments.length ? (
-                assignments.map((row) => {
-                  const event = eventMap[row.event_id];
+              {assignmentSummaries.length ? (
+                assignmentSummaries.map((row) => {
+                  const event = row.event;
                   return (
                     <div
                       key={row.id}
@@ -519,26 +842,195 @@ export default function ContractorPage() {
 
                         <div className="text-left md:text-right">
                           <div className="font-semibold text-amber-300">
-                            {money(Number(row.rate || 0))} /{" "}
-                            {row.rate_type || "day"}
+                            {money(Number(row.rate || 0))} / {row.rate_type || "day"}
                           </div>
                           <div className="text-xs text-zinc-500">
                             {dateLabel(row.work_date)} · {timeLabel(row.call_time)}
                           </div>
                         </div>
                       </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <StatusPill active={!!row.confirmed} text="Confirmed" />
+                        <StatusPill active={!!row.approved} text="Approved" />
+                        <StatusPill active={!!row.paid} text="Paid" />
+                      </div>
                     </div>
                   );
                 })
               ) : (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-sm text-zinc-400">
-                  No assignments yet.
-                </div>
+                <EmptyState text="No assignments yet." />
               )}
             </div>
           </GlassCard>
         </div>
       </div>
+
+      {selectedInvoiceView && selectedInvoiceAssignment ? (
+        <div className="fixed inset-0 z-50 bg-black/70 p-4 backdrop-blur-sm">
+          <div className="mx-auto max-h-[95vh] max-w-4xl overflow-auto rounded-[28px] border border-white/10 bg-[#0b0b0b] p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="text-xl font-semibold text-white">
+                Approved Invoice / Pay Stub
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-semibold text-black"
+                >
+                  Download / Print
+                </button>
+                <button
+                  onClick={() => setSelectedInvoiceView(false)}
+                  className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div id="contractor-invoice-print" className="rounded-3xl border border-white/10 bg-white p-10 text-slate-900">
+              <div className="mb-8 flex items-start justify-between border-b border-slate-200 pb-6">
+                <div>
+                  <div className="text-3xl font-bold">Luxon Entertainment LLC</div>
+                  <div className="mt-1 text-slate-500">Contractor Pay Stub / Invoice Record</div>
+                  <div className="mt-3 text-sm text-slate-500">
+                    Generated: {new Date().toLocaleDateString("en-US")}
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <div className="text-4xl font-bold">APPROVED</div>
+                  <div className="mt-2 text-slate-500">
+                    Record #{selectedInvoiceAssignment.id}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-6 grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="text-xs uppercase tracking-wide text-slate-400">
+                    Contractor
+                  </div>
+                  <div className="mt-2 text-lg font-bold">
+                    {contractor?.name || "--"}
+                  </div>
+                  <div>{contractor?.email || ""}</div>
+                  <div>{contractor?.phone || ""}</div>
+                  <div>
+                    {contractor?.city || ""}
+                    {contractor?.state ? `, ${contractor.state}` : ""}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="text-xs uppercase tracking-wide text-slate-400">
+                    Event
+                  </div>
+                  <div className="mt-2 text-lg font-bold">
+                    {selectedInvoiceAssignment.event?.name || "--"}
+                  </div>
+                  <div>{selectedInvoiceAssignment.event?.client || ""}</div>
+                  <div>{selectedInvoiceAssignment.event?.venue || ""}</div>
+                  <div>{selectedInvoiceAssignment.event?.address || ""}</div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-300 bg-slate-100">
+                      <th className="p-3">Date</th>
+                      <th className="p-3">Position</th>
+                      <th className="p-3">Call Time</th>
+                      <th className="p-3">Hours</th>
+                      <th className="p-3">Rate</th>
+                      <th className="p-3 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-slate-200">
+                      <td className="p-3">{dateLabel(selectedInvoiceAssignment.work_date)}</td>
+                      <td className="p-3">{selectedInvoiceAssignment.position || "Assignment"}</td>
+                      <td className="p-3">{timeLabel(selectedInvoiceAssignment.call_time)}</td>
+                      <td className="p-3">{selectedInvoiceAssignment.hours.toFixed(2)}</td>
+                      <td className="p-3">
+                        {money(Number(selectedInvoiceAssignment.rate || 0))} /{" "}
+                        {selectedInvoiceAssignment.rate_type || "day"}
+                      </td>
+                      <td className="p-3 text-right font-semibold">
+                        {money(selectedInvoiceAssignment.total)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="text-xs uppercase tracking-wide text-slate-400">
+                    Status
+                  </div>
+                  <div className="mt-2 text-sm">
+                    Confirmed: {selectedInvoiceAssignment.confirmed ? "Yes" : "No"}
+                  </div>
+                  <div className="text-sm">
+                    Approved: {selectedInvoiceAssignment.approved ? "Yes" : "No"}
+                  </div>
+                  <div className="text-sm">
+                    Paid: {selectedInvoiceAssignment.paid ? "Yes" : "No"}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-slate-100 p-5">
+                  <div className="mb-2 flex justify-between">
+                    <span>Hours</span>
+                    <span>{selectedInvoiceAssignment.hours.toFixed(2)}</span>
+                  </div>
+                  <div className="mb-2 flex justify-between">
+                    <span>Rate</span>
+                    <span>
+                      {money(Number(selectedInvoiceAssignment.rate || 0))} /{" "}
+                      {selectedInvoiceAssignment.rate_type || "day"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-300 pt-3 text-xl font-bold">
+                    <span>Total</span>
+                    <span>{money(selectedInvoiceAssignment.total)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 text-xs text-slate-500">
+                This record is generated from the contractor portal for your files.
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #contractor-invoice-print,
+          #contractor-invoice-print * {
+            visibility: visible !important;
+          }
+          #contractor-invoice-print {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            background: white !important;
+          }
+          @page {
+            size: letter;
+            margin: 0.5in;
+          }
+        }
+      `}</style>
     </main>
   );
 }
@@ -641,6 +1133,37 @@ function Field({
   );
 }
 
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none focus:border-amber-400/40"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function ReadOnlyField({
   label,
   value,
@@ -657,5 +1180,33 @@ function ReadOnlyField({
         {value}
       </div>
     </label>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-sm text-zinc-400">
+      {text}
+    </div>
+  );
+}
+
+function StatusPill({
+  active,
+  text,
+}: {
+  active: boolean;
+  text: string;
+}) {
+  return (
+    <span
+      className={`rounded-full border px-2.5 py-1 text-[11px] ${
+        active
+          ? "border-emerald-400/20 bg-emerald-500/20 text-emerald-300"
+          : "border-white/10 bg-white/[0.04] text-zinc-400"
+      }`}
+    >
+      {text}
+    </span>
   );
 }
