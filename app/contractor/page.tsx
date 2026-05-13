@@ -74,6 +74,12 @@ type StoredDoc = {
   size?: number;
 };
 
+type AssignmentSummary = Assignment & {
+  hours: number;
+  total: number;
+  event?: EventItem;
+};
+
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -121,6 +127,260 @@ function fileSizeLabel(size?: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function buildInvoiceHtml(
+  contractor: Contractor,
+  assignment: AssignmentSummary
+) {
+  const event = assignment.event;
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Luxon Invoice Record #${assignment.id}</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 0.5in;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: white;
+      color: #0f172a;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    body {
+      padding: 0;
+    }
+    .sheet {
+      width: 100%;
+      background: white;
+      page-break-after: avoid;
+      page-break-inside: avoid;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 24px;
+      margin-bottom: 24px;
+    }
+    .company {
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    .subtle {
+      color: #64748b;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .approved {
+      text-align: right;
+    }
+    .approved .big {
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .label {
+      color: #94a3b8;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    .value-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 24px;
+      font-size: 14px;
+    }
+    thead tr {
+      background: #f1f5f9;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    th:last-child, td:last-child {
+      text-align: right;
+    }
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 16px;
+      align-items: start;
+    }
+    .summary {
+      background: #f8fafc;
+      border-radius: 16px;
+      padding: 18px;
+    }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    .summary-total {
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid #cbd5e1;
+      padding-top: 12px;
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .footer {
+      margin-top: 28px;
+      color: #64748b;
+      font-size: 12px;
+    }
+    @media print {
+      html, body {
+        width: 100%;
+        height: auto;
+      }
+      .sheet {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="header">
+      <div>
+        <div class="company">Luxon Entertainment LLC</div>
+        <div class="subtle">Contractor Pay Stub / Invoice Record</div>
+        <div class="subtle" style="margin-top: 10px;">Generated: ${escapeHtml(
+          new Date().toLocaleDateString("en-US")
+        )}</div>
+      </div>
+
+      <div class="approved">
+        <div class="big">APPROVED</div>
+        <div class="subtle" style="margin-top: 10px;">Record #${assignment.id}</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="label">Contractor</div>
+        <div class="value-title">${escapeHtml(contractor.name || "--")}</div>
+        <div>${escapeHtml(contractor.email || "")}</div>
+        <div>${escapeHtml(contractor.phone || "")}</div>
+        <div>${escapeHtml(
+          `${contractor.city || ""}${contractor.state ? `, ${contractor.state}` : ""}`
+        )}</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Event</div>
+        <div class="value-title">${escapeHtml(event?.name || "--")}</div>
+        <div>${escapeHtml(event?.client || "")}</div>
+        <div>${escapeHtml(event?.venue || "")}</div>
+        <div>${escapeHtml(event?.address || "")}</div>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Position</th>
+          <th>Call Time</th>
+          <th>Hours</th>
+          <th>Rate</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>${escapeHtml(dateLabel(assignment.work_date))}</td>
+          <td>${escapeHtml(assignment.position || "Assignment")}</td>
+          <td>${escapeHtml(timeLabel(assignment.call_time))}</td>
+          <td>${escapeHtml(assignment.hours.toFixed(2))}</td>
+          <td>${escapeHtml(
+            `${money(Number(assignment.rate || 0))} / ${assignment.rate_type || "day"}`
+          )}</td>
+          <td>${escapeHtml(money(assignment.total))}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="bottom-grid">
+      <div class="card">
+        <div class="label">Status</div>
+        <div style="font-size: 14px; margin-bottom: 6px;">Confirmed: ${
+          assignment.confirmed ? "Yes" : "No"
+        }</div>
+        <div style="font-size: 14px; margin-bottom: 6px;">Approved: ${
+          assignment.approved ? "Yes" : "No"
+        }</div>
+        <div style="font-size: 14px;">Paid: ${assignment.paid ? "Yes" : "No"}</div>
+      </div>
+
+      <div class="summary">
+        <div class="summary-row">
+          <span>Hours</span>
+          <span>${escapeHtml(assignment.hours.toFixed(2))}</span>
+        </div>
+        <div class="summary-row">
+          <span>Rate</span>
+          <span>${escapeHtml(
+            `${money(Number(assignment.rate || 0))} / ${assignment.rate_type || "day"}`
+          )}</span>
+        </div>
+        <div class="summary-total">
+          <span>Total</span>
+          <span>${escapeHtml(money(assignment.total))}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      This record is generated from the contractor portal for your files.
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
 export default function ContractorPage() {
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -132,7 +392,8 @@ export default function ContractorPage() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [documents, setDocuments] = useState<StoredDoc[]>([]);
-  const [selectedInvoiceAssignmentId, setSelectedInvoiceAssignmentId] = useState<string>("");
+  const [selectedInvoiceAssignmentId, setSelectedInvoiceAssignmentId] =
+    useState<string>("");
   const [selectedInvoiceView, setSelectedInvoiceView] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -366,6 +627,27 @@ export default function ContractorPage() {
     a.download = name;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function downloadInvoiceRecord(assignment: AssignmentSummary) {
+    if (!contractor) return;
+
+    const html = buildInvoiceHtml(contractor, assignment);
+    const printWindow = window.open("", "_blank", "width=1000,height=900");
+
+    if (!printWindow) {
+      setMessage("Popup blocked. Please allow popups and try again.");
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+
+    printWindow.onload = () => {
+      printWindow.focus();
+      printWindow.print();
+    };
   }
 
   const eventMap = useMemo(() => {
@@ -658,7 +940,7 @@ export default function ContractorPage() {
                     View
                   </button>
                   <button
-                    onClick={() => window.print()}
+                    onClick={() => downloadInvoiceRecord(selectedInvoiceAssignment)}
                     className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-semibold text-black"
                   >
                     <Download className="h-4 w-4" />
@@ -698,9 +980,7 @@ export default function ContractorPage() {
                           <div className="font-semibold text-amber-300">
                             {money(selectedInvoiceAssignment.total)}
                           </div>
-                          <div className="text-xs text-zinc-500">
-                            Approved
-                          </div>
+                          <div className="text-xs text-zinc-500">Approved</div>
                         </div>
                       </div>
 
@@ -875,7 +1155,7 @@ export default function ContractorPage() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => window.print()}
+                  onClick={() => downloadInvoiceRecord(selectedInvoiceAssignment)}
                   className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-semibold text-black"
                 >
                   Download / Print
@@ -889,11 +1169,13 @@ export default function ContractorPage() {
               </div>
             </div>
 
-            <div id="contractor-invoice-print" className="rounded-3xl border border-white/10 bg-white p-10 text-slate-900">
+            <div className="rounded-3xl border border-white/10 bg-white p-10 text-slate-900">
               <div className="mb-8 flex items-start justify-between border-b border-slate-200 pb-6">
                 <div>
                   <div className="text-3xl font-bold">Luxon Entertainment LLC</div>
-                  <div className="mt-1 text-slate-500">Contractor Pay Stub / Invoice Record</div>
+                  <div className="mt-1 text-slate-500">
+                    Contractor Pay Stub / Invoice Record
+                  </div>
                   <div className="mt-3 text-sm text-slate-500">
                     Generated: {new Date().toLocaleDateString("en-US")}
                   </div>
@@ -951,9 +1233,15 @@ export default function ContractorPage() {
                   <tbody>
                     <tr className="border-b border-slate-200">
                       <td className="p-3">{dateLabel(selectedInvoiceAssignment.work_date)}</td>
-                      <td className="p-3">{selectedInvoiceAssignment.position || "Assignment"}</td>
-                      <td className="p-3">{timeLabel(selectedInvoiceAssignment.call_time)}</td>
-                      <td className="p-3">{selectedInvoiceAssignment.hours.toFixed(2)}</td>
+                      <td className="p-3">
+                        {selectedInvoiceAssignment.position || "Assignment"}
+                      </td>
+                      <td className="p-3">
+                        {timeLabel(selectedInvoiceAssignment.call_time)}
+                      </td>
+                      <td className="p-3">
+                        {selectedInvoiceAssignment.hours.toFixed(2)}
+                      </td>
                       <td className="p-3">
                         {money(Number(selectedInvoiceAssignment.rate || 0))} /{" "}
                         {selectedInvoiceAssignment.rate_type || "day"}
@@ -1008,29 +1296,6 @@ export default function ContractorPage() {
           </div>
         </div>
       ) : null}
-
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          #contractor-invoice-print,
-          #contractor-invoice-print * {
-            visibility: visible !important;
-          }
-          #contractor-invoice-print {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            background: white !important;
-          }
-          @page {
-            size: letter;
-            margin: 0.5in;
-          }
-        }
-      `}</style>
     </main>
   );
 }
