@@ -12,14 +12,19 @@ import {
   FileText,
   LogOut,
   MapPin,
+  Pencil,
+  Save,
   ShieldCheck,
   Sparkles,
   Upload,
   User,
+  Phone,
+  AlertCircle,
 } from "lucide-react";
 
 type Contractor = {
   id: number;
+  user_id?: string | null;
   name: string;
   email?: string | null;
   role?: string | null;
@@ -86,10 +91,22 @@ function timeLabel(value?: string | null) {
 
 export default function ContractorPage() {
   const [loading, setLoading] = useState(true);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [message, setMessage] = useState("");
   const [contractor, setContractor] = useState<Contractor | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+
+  const [profileForm, setProfileForm] = useState({
+    name: "",
+    phone: "",
+    company: "",
+    city: "",
+    state: "",
+    emergency_contact_name: "",
+    emergency_contact_phone: "",
+  });
 
   useEffect(() => {
     async function boot() {
@@ -102,39 +119,122 @@ export default function ContractorPage() {
         return;
       }
 
-      const { data: contractorRow, error: contractorError } = await supabase
-        .from("contractors")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .maybeSingle();
-
-      if (contractorError || !contractorRow) {
-        window.location.href = "/login";
-        return;
-      }
-
-      setContractor(contractorRow);
-
-      const [{ data: assignmentRows }, { data: eventRows }] = await Promise.all([
-        supabase
-          .from("assignments")
-          .select("*")
-          .eq("contractor_id", contractorRow.id)
-          .order("work_date", { ascending: false }),
-        supabase.from("events").select("id,name,venue,address"),
-      ]);
-
-      setAssignments(assignmentRows || []);
-      setEvents(eventRows || []);
-      setLoading(false);
+      await loadPortal(session.user.id);
     }
 
     void boot();
   }, []);
 
+  async function loadPortal(userId: string) {
+    setLoading(true);
+    setMessage("");
+
+    const { data: contractorRow, error: contractorError } = await supabase
+      .from("contractors")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (contractorError || !contractorRow) {
+      window.location.href = "/login";
+      return;
+    }
+
+    const [{ data: assignmentRows }, { data: eventRows }] = await Promise.all([
+      supabase
+        .from("assignments")
+        .select("*")
+        .eq("contractor_id", contractorRow.id)
+        .order("work_date", { ascending: false }),
+      supabase.from("events").select("id,name,venue,address"),
+    ]);
+
+    setContractor(contractorRow);
+    setAssignments(assignmentRows || []);
+    setEvents(eventRows || []);
+    setProfileForm({
+      name: contractorRow.name || "",
+      phone: contractorRow.phone || "",
+      company: contractorRow.company || "",
+      city: contractorRow.city || "",
+      state: contractorRow.state || "",
+      emergency_contact_name: contractorRow.emergency_contact_name || "",
+      emergency_contact_phone: contractorRow.emergency_contact_phone || "",
+    });
+    setLoading(false);
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
     window.location.href = "/login";
+  }
+
+  function startEditingProfile() {
+    if (!contractor) return;
+
+    setProfileForm({
+      name: contractor.name || "",
+      phone: contractor.phone || "",
+      company: contractor.company || "",
+      city: contractor.city || "",
+      state: contractor.state || "",
+      emergency_contact_name: contractor.emergency_contact_name || "",
+      emergency_contact_phone: contractor.emergency_contact_phone || "",
+    });
+    setIsEditingProfile(true);
+    setMessage("");
+  }
+
+  function cancelEditingProfile() {
+    setIsEditingProfile(false);
+    setMessage("");
+  }
+
+  async function saveProfile() {
+    if (!contractor) return;
+
+    if (!profileForm.name.trim()) {
+      setMessage("Name is required.");
+      return;
+    }
+
+    setSavingProfile(true);
+    setMessage("");
+
+    const { data, error } = await supabase
+      .from("contractors")
+      .update({
+        name: profileForm.name.trim(),
+        phone: profileForm.phone.trim() || null,
+        company: profileForm.company.trim() || null,
+        city: profileForm.city.trim() || null,
+        state: profileForm.state.trim() || null,
+        emergency_contact_name: profileForm.emergency_contact_name.trim() || null,
+        emergency_contact_phone: profileForm.emergency_contact_phone.trim() || null,
+      })
+      .eq("id", contractor.id)
+      .select("*")
+      .single();
+
+    setSavingProfile(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setContractor(data);
+    setProfileForm({
+      name: data.name || "",
+      phone: data.phone || "",
+      company: data.company || "",
+      city: data.city || "",
+      state: data.state || "",
+      emergency_contact_name: data.emergency_contact_name || "",
+      emergency_contact_phone: data.emergency_contact_phone || "",
+    });
+    setIsEditingProfile(false);
+    setMessage("Profile updated.");
   }
 
   const eventMap = useMemo(() => {
@@ -145,7 +245,10 @@ export default function ContractorPage() {
     return map;
   }, [events]);
 
-  const totalValue = assignments.reduce((sum, row) => sum + Number(row.rate || 0), 0);
+  const totalValue = assignments.reduce(
+    (sum, row) => sum + Number(row.rate || 0),
+    0
+  );
   const paidCount = assignments.filter((row) => row.paid).length;
 
   if (loading) {
@@ -204,28 +307,160 @@ export default function ContractorPage() {
         )}
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard icon={<ShieldCheck className="h-5 w-5" />} label="My Role" value={contractor?.role || "Contractor"} sublabel="Current roster role" />
-          <MetricCard icon={<DollarSign className="h-5 w-5" />} label="My Rate" value={`${money(Number(contractor?.rate || 0))} / ${contractor?.rate_type || "day"}`} sublabel="Configured pay rate" />
-          <MetricCard icon={<CalendarDays className="h-5 w-5" />} label="Assignments" value={String(assignments.length)} sublabel={`${paidCount} paid`} />
-          <MetricCard icon={<FileText className="h-5 w-5" />} label="Assignment Value" value={money(totalValue)} sublabel="Total assigned value" />
+          <MetricCard
+            icon={<ShieldCheck className="h-5 w-5" />}
+            label="My Role"
+            value={contractor?.role || "Contractor"}
+            sublabel="Current roster role"
+          />
+          <MetricCard
+            icon={<DollarSign className="h-5 w-5" />}
+            label="My Rate"
+            value={`${money(Number(contractor?.rate || 0))} / ${
+              contractor?.rate_type || "day"
+            }`}
+            sublabel="Configured pay rate"
+          />
+          <MetricCard
+            icon={<CalendarDays className="h-5 w-5" />}
+            label="Assignments"
+            value={String(assignments.length)}
+            sublabel={`${paidCount} paid`}
+          />
+          <MetricCard
+            icon={<FileText className="h-5 w-5" />}
+            label="Assignment Value"
+            value={money(totalValue)}
+            sublabel="Total assigned value"
+          />
         </div>
 
         <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <GlassCard>
-            <SectionTitle
-              icon={<User className="h-5 w-5" />}
-              title="My Profile"
-              subtitle="Contractor details on file"
-            />
+            <div className="flex items-start justify-between gap-4">
+              <SectionTitle
+                icon={<User className="h-5 w-5" />}
+                title="My Profile"
+                subtitle="Contractor details on file"
+              />
 
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              <MiniInfo icon={<User className="h-4 w-4" />} label="Name" value={contractor?.name || "--"} />
-              <MiniInfo icon={<Briefcase className="h-4 w-4" />} label="Role" value={contractor?.role || "--"} />
-              <MiniInfo icon={<Building2 className="h-4 w-4" />} label="Company" value={contractor?.company || "--"} />
-              <MiniInfo icon={<MapPin className="h-4 w-4" />} label="City / State" value={`${contractor?.city || "--"}${contractor?.state ? `, ${contractor.state}` : ""}`} />
-              <MiniInfo icon={<User className="h-4 w-4" />} label="Phone" value={contractor?.phone || "--"} />
-              <MiniInfo icon={<User className="h-4 w-4" />} label="Emergency Contact" value={contractor?.emergency_contact_name || "--"} />
+              {!isEditingProfile ? (
+                <button
+                  onClick={startEditingProfile}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+                >
+                  <Pencil className="h-4 w-4" />
+                  Edit Profile
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={cancelEditingProfile}
+                    className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveProfile}
+                    disabled={savingProfile}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                  >
+                    <Save className="h-4 w-4" />
+                    {savingProfile ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              )}
             </div>
+
+            {!isEditingProfile ? (
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                <MiniInfo
+                  icon={<User className="h-4 w-4" />}
+                  label="Name"
+                  value={contractor?.name || "--"}
+                />
+                <MiniInfo
+                  icon={<Briefcase className="h-4 w-4" />}
+                  label="Role"
+                  value={contractor?.role || "--"}
+                />
+                <MiniInfo
+                  icon={<Building2 className="h-4 w-4" />}
+                  label="Company"
+                  value={contractor?.company || "--"}
+                />
+                <MiniInfo
+                  icon={<MapPin className="h-4 w-4" />}
+                  label="City / State"
+                  value={`${contractor?.city || "--"}${
+                    contractor?.state ? `, ${contractor.state}` : ""
+                  }`}
+                />
+                <MiniInfo
+                  icon={<Phone className="h-4 w-4" />}
+                  label="Phone"
+                  value={contractor?.phone || "--"}
+                />
+                <MiniInfo
+                  icon={<User className="h-4 w-4" />}
+                  label="Emergency Contact"
+                  value={contractor?.emergency_contact_name || "--"}
+                />
+                <MiniInfo
+                  icon={<AlertCircle className="h-4 w-4" />}
+                  label="Emergency Phone"
+                  value={contractor?.emergency_contact_phone || "--"}
+                />
+                <MiniInfo
+                  icon={<FileText className="h-4 w-4" />}
+                  label="Email"
+                  value={contractor?.email || "--"}
+                />
+              </div>
+            ) : (
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                <Field
+                  label="Name"
+                  value={profileForm.name}
+                  onChange={(v) => setProfileForm({ ...profileForm, name: v })}
+                />
+                <ReadOnlyField label="Role" value={contractor?.role || "Contractor"} />
+                <Field
+                  label="Company"
+                  value={profileForm.company}
+                  onChange={(v) => setProfileForm({ ...profileForm, company: v })}
+                />
+                <Field
+                  label="Phone"
+                  value={profileForm.phone}
+                  onChange={(v) => setProfileForm({ ...profileForm, phone: v })}
+                />
+                <Field
+                  label="City"
+                  value={profileForm.city}
+                  onChange={(v) => setProfileForm({ ...profileForm, city: v })}
+                />
+                <Field
+                  label="State"
+                  value={profileForm.state}
+                  onChange={(v) => setProfileForm({ ...profileForm, state: v })}
+                />
+                <Field
+                  label="Emergency Contact"
+                  value={profileForm.emergency_contact_name}
+                  onChange={(v) =>
+                    setProfileForm({ ...profileForm, emergency_contact_name: v })
+                  }
+                />
+                <Field
+                  label="Emergency Phone"
+                  value={profileForm.emergency_contact_phone}
+                  onChange={(v) =>
+                    setProfileForm({ ...profileForm, emergency_contact_phone: v })
+                  }
+                />
+              </div>
+            )}
           </GlassCard>
 
           <GlassCard>
@@ -270,7 +505,9 @@ export default function ContractorPage() {
                     >
                       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                         <div>
-                          <div className="font-semibold">{row.position || "Assignment"}</div>
+                          <div className="font-semibold">
+                            {row.position || "Assignment"}
+                          </div>
                           <div className="text-sm text-zinc-400">
                             {event?.name || "Event"}
                             {event?.venue ? ` · ${event.venue}` : ""}
@@ -282,7 +519,8 @@ export default function ContractorPage() {
 
                         <div className="text-left md:text-right">
                           <div className="font-semibold text-amber-300">
-                            {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+                            {money(Number(row.rate || 0))} /{" "}
+                            {row.rate_type || "day"}
                           </div>
                           <div className="text-xs text-zinc-500">
                             {dateLabel(row.work_date)} · {timeLabel(row.call_time)}
@@ -377,5 +615,47 @@ function MiniInfo({
       </div>
       <div className="text-sm font-medium text-zinc-100">{value}</div>
     </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
+        {label}
+      </span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none focus:border-amber-400/40"
+      />
+    </label>
+  );
+}
+
+function ReadOnlyField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
+        {label}
+      </span>
+      <div className="flex h-12 items-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-white">
+        {value}
+      </div>
+    </label>
   );
 }
