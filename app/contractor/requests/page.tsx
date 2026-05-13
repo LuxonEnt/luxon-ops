@@ -128,6 +128,8 @@ export default function ContractorRequestsPage() {
       supabase
         .from("crew_position_requests")
         .select("*")
+        .neq("status", "Filled")
+        .neq("status", "Cancelled")
         .order("created_at", { ascending: false }),
       supabase
         .from("crew_request_responses")
@@ -143,11 +145,7 @@ export default function ContractorRequestsPage() {
       return;
     }
 
-    setRequests(
-      (requestsData || []).filter(
-        (r) => r.status !== "Closed" && r.status !== "Cancelled"
-      )
-    );
+    setRequests(requestsData || []);
     setResponses(responsesData || []);
     setEvents(eventsData || []);
 
