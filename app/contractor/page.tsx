@@ -1,96 +1,61 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import {
-  BadgeDollarSign,
   Briefcase,
   Building2,
   CalendarDays,
-  CheckCircle2,
   Clock3,
-  Download,
+  DollarSign,
   FileText,
   LogOut,
   MapPin,
-  Navigation,
-  Phone,
-  Save,
+  ShieldCheck,
   Sparkles,
   Upload,
   User,
-  X,
 } from "lucide-react";
 
 type Contractor = {
   id: number;
-  user_id: string;
   name: string;
-  first_name?: string;
-  last_name?: string;
-  role?: string;
-  phone?: string;
-  email?: string;
-  company?: string;
-  city?: string;
-  state?: string;
-  emergency_contact_name?: string;
-  emergency_contact_phone?: string;
-  notes?: string;
-  skills?: string[];
-  rate?: number;
-  rate_type?: string;
-  status?: string;
+  email?: string | null;
+  role?: string | null;
+  phone?: string | null;
+  company?: string | null;
+  city?: string | null;
+  state?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  skills?: string[] | null;
+  rate?: number | null;
+  rate_type?: string | null;
 };
 
 type Assignment = {
   id: number;
-  contractor_id: number;
   event_id: number;
-  position: string;
-  work_date: string;
-  call_time: string | null;
-  clock_in: string | null;
-  clock_out: string | null;
-  clock_in_location: string | null;
-  clock_out_location: string | null;
-  break_hours: number;
-  rate: number;
-  rate_type: string;
-  confirmed: boolean;
-  approved: boolean;
-  paid: boolean;
+  contractor_id: number;
+  position?: string | null;
+  work_date?: string | null;
+  call_time?: string | null;
+  clock_in?: string | null;
+  clock_out?: string | null;
+  break_hours?: number | null;
+  rate?: number | null;
+  rate_type?: string | null;
+  confirmed?: boolean | null;
+  approved?: boolean | null;
+  paid?: boolean | null;
 };
 
 type EventItem = {
   id: number;
   name: string;
-  client: string | null;
-  venue: string | null;
-  address: string | null;
-  latitude?: string | null;
-  longitude?: string | null;
-  geofence_radius_feet?: number | null;
-  start_date: string | null;
-  end_date: string | null;
-  status?: string | null;
-};
-
-type AvailabilityItem = {
-  id: number;
-  contractor_id: number;
-  start_date: string;
-  end_date: string;
-  availability_status: string;
-  notes: string | null;
-  created_at?: string;
-};
-
-type StoredDoc = {
-  name: string;
-  path: string;
-  created_at?: string;
-  updated_at?: string;
+  venue?: string | null;
+  address?: string | null;
 };
 
 function money(value: number) {
@@ -119,133 +84,15 @@ function timeLabel(value?: string | null) {
   });
 }
 
-function nowTimeInput() {
-  const now = new Date();
-  return `${String(now.getHours()).padStart(2, "0")}:${String(
-    now.getMinutes()
-  ).padStart(2, "0")}`;
-}
-
-function hoursBetween(
-  start?: string | null,
-  end?: string | null,
-  breakHours = 0
-) {
-  if (!start || !end) return 0;
-  const [sh, sm] = String(start).slice(0, 5).split(":").map(Number);
-  const [eh, em] = String(end).slice(0, 5).split(":").map(Number);
-  let startMins = sh * 60 + sm;
-  let endMins = eh * 60 + em;
-  if (endMins < startMins) endMins += 24 * 60;
-  return Math.max(0, (endMins - startMins) / 60 - Number(breakHours || 0));
-}
-
-function eventTone(status?: string | null) {
-  switch (status) {
-    case "Completed":
-      return "border-emerald-400/20 bg-emerald-500/10 text-emerald-300";
-    case "In Progress":
-      return "border-amber-400/20 bg-amber-500/10 text-amber-300";
-    case "Cancelled":
-      return "border-red-400/20 bg-red-500/10 text-red-300";
-    default:
-      return "border-white/10 bg-white/[0.04] text-zinc-300";
-  }
-}
-
-function mapsUrl(address?: string | null) {
-  if (!address) return "#";
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-    address
-  )}`;
-}
-
-function distanceFeet(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const earthRadiusFeet = 20902231;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return earthRadiusFeet * c;
-}
-
-async function getCurrentPositionSafe(): Promise<GeolocationPosition | null> {
-  if (!navigator.geolocation) return null;
-
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve(pos),
-      () => resolve(null),
-      {
-        enableHighAccuracy: true,
-        timeout: 12000,
-        maximumAge: 0,
-      }
-    );
-  });
-}
-
-function startOfPayPeriod(rows: Array<{ work_date: string }>) {
-  if (!rows.length) return "--";
-  const dates = rows.map((r) => r.work_date).filter(Boolean).sort();
-  return dateLabel(dates[0]);
-}
-
-function endOfPayPeriod(rows: Array<{ work_date: string }>) {
-  if (!rows.length) return "--";
-  const dates = rows.map((r) => r.work_date).filter(Boolean).sort();
-  return dateLabel(dates[dates.length - 1]);
-}
-
 export default function ContractorPage() {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [clockingId, setClockingId] = useState<number | null>(null);
+  const [message, setMessage] = useState("");
   const [contractor, setContractor] = useState<Contractor | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [eventsById, setEventsById] = useState<Record<number, EventItem>>({});
-  const [message, setMessage] = useState("");
-  const [editMode, setEditMode] = useState(false);
-
-  const [availability, setAvailability] = useState<AvailabilityItem[]>([]);
-  const [documents, setDocuments] = useState<StoredDoc[]>([]);
-
-  const [profileForm, setProfileForm] = useState({
-    first_name: "",
-    last_name: "",
-    phone: "",
-    company: "",
-    city: "",
-    state: "",
-    emergency_contact_name: "",
-    emergency_contact_phone: "",
-    notes: "",
-    skillsText: "",
-  });
-
-  const [availabilityForm, setAvailabilityForm] = useState({
-    start_date: "",
-    end_date: "",
-    availability_status: "Available",
-    notes: "",
-  });
-
-  const [payStubForm, setPayStubForm] = useState({
-    reference_number: `PS-${new Date().getFullYear()}-${String(
-      new Date().getMonth() + 1
-    ).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
-    deductions: "0",
-    reimbursements: "0",
-    notes: "",
-  });
+  const [events, setEvents] = useState<EventItem[]>([]);
 
   useEffect(() => {
-    async function loadContractorPortal() {
+    async function boot() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -255,372 +102,51 @@ export default function ContractorPage() {
         return;
       }
 
-      const userId = session.user.id;
-
       const { data: contractorRow, error: contractorError } = await supabase
         .from("contractors")
         .select("*")
-        .eq("user_id", userId)
+        .eq("user_id", session.user.id)
         .maybeSingle();
 
       if (contractorError || !contractorRow) {
-        setMessage("Could not find your contractor profile.");
-        setLoading(false);
+        window.location.href = "/login";
         return;
       }
 
       setContractor(contractorRow);
-      setProfileForm({
-        first_name: contractorRow.first_name || "",
-        last_name: contractorRow.last_name || "",
-        phone: contractorRow.phone || "",
-        company: contractorRow.company || "",
-        city: contractorRow.city || "",
-        state: contractorRow.state || "",
-        emergency_contact_name: contractorRow.emergency_contact_name || "",
-        emergency_contact_phone: contractorRow.emergency_contact_phone || "",
-        notes: contractorRow.notes || "",
-        skillsText: Array.isArray(contractorRow.skills)
-          ? contractorRow.skills.join(", ")
-          : "",
-      });
 
-      const { data: assignmentRows, error: assignmentError } = await supabase
-        .from("assignments")
-        .select("*")
-        .eq("contractor_id", contractorRow.id)
-        .order("work_date", { ascending: true });
-
-      if (assignmentError) {
-        setMessage("Could not load your assignments.");
-        setAssignments([]);
-      } else {
-        const loadedAssignments = assignmentRows || [];
-        setAssignments(loadedAssignments);
-
-        const uniqueEventIds = [
-          ...new Set(loadedAssignments.map((row) => row.event_id).filter(Boolean)),
-        ];
-
-        if (uniqueEventIds.length > 0) {
-          const { data: eventRows } = await supabase
-            .from("events")
-            .select("*")
-            .in("id", uniqueEventIds);
-
-          const map: Record<number, EventItem> = {};
-          (eventRows || []).forEach((event) => {
-            map[event.id] = event;
-          });
-          setEventsById(map);
-        }
-      }
-
-      await Promise.all([
-        loadAvailability(contractorRow.id),
-        loadDocuments(contractorRow.id),
+      const [{ data: assignmentRows }, { data: eventRows }] = await Promise.all([
+        supabase
+          .from("assignments")
+          .select("*")
+          .eq("contractor_id", contractorRow.id)
+          .order("work_date", { ascending: false }),
+        supabase.from("events").select("id,name,venue,address"),
       ]);
 
+      setAssignments(assignmentRows || []);
+      setEvents(eventRows || []);
       setLoading(false);
     }
 
-    loadContractorPortal();
+    void boot();
   }, []);
-
-  async function loadAvailability(contractorId: number) {
-    const { data, error } = await supabase
-      .from("contractor_availability")
-      .select("*")
-      .eq("contractor_id", contractorId)
-      .order("start_date", { ascending: false });
-
-    if (!error) {
-      setAvailability(data || []);
-    }
-  }
-
-  async function loadDocuments(contractorId: number) {
-    const { data, error } = await supabase.storage
-      .from("contractor-documents")
-      .list(String(contractorId), {
-        limit: 100,
-        sortBy: { column: "name", order: "asc" },
-      });
-
-    if (!error) {
-      const rows =
-        (data || []).map((item) => ({
-          name: item.name,
-          path: `${contractorId}/${item.name}`,
-          created_at: (item as any).created_at,
-          updated_at: (item as any).updated_at,
-        })) || [];
-      setDocuments(rows);
-    }
-  }
-
-  const assignmentRows = useMemo(() => {
-    return assignments.map((row) => {
-      const event = eventsById[row.event_id];
-      const hours = hoursBetween(row.clock_in, row.clock_out, row.break_hours || 0);
-      const total =
-        row.rate_type === "day" ? Number(row.rate || 0) : hours * Number(row.rate || 0);
-
-      return {
-        ...row,
-        event,
-        hours,
-        total,
-      };
-    });
-  }, [assignments, eventsById]);
-
-  const totalTrackedHours = assignmentRows.reduce((sum, row) => sum + row.hours, 0);
-  const approvedJobs = assignmentRows.filter((row) => row.approved).length;
-  const paidJobs = assignmentRows.filter((row) => row.paid).length;
-  const totalEarned = assignmentRows.reduce((sum, row) => sum + row.total, 0);
-  const payStubRows = assignmentRows.filter((row) => row.approved);
-
-  const deductions = Number(payStubForm.deductions || 0);
-  const reimbursements = Number(payStubForm.reimbursements || 0);
-  const grossPay = payStubRows.reduce((sum, row) => sum + row.total, 0);
-  const netPay = grossPay - deductions + reimbursements;
 
   async function signOut() {
     await supabase.auth.signOut();
     window.location.href = "/login";
   }
 
-  async function saveProfile() {
-    if (!contractor) return;
-
-    try {
-      setSaving(true);
-      setMessage("");
-
-      const firstName = profileForm.first_name.trim();
-      const lastName = profileForm.last_name.trim();
-      const fullName =
-        `${firstName} ${lastName}`.trim() || contractor.email || "Contractor";
-
-      const skills = profileForm.skillsText
-        .split(/[\n,]+/)
-        .map((skill) => skill.trim())
-        .filter(Boolean);
-
-      const updatePayload = {
-        first_name: firstName,
-        last_name: lastName,
-        name: fullName,
-        phone: profileForm.phone.trim(),
-        company: profileForm.company.trim(),
-        city: profileForm.city.trim(),
-        state: profileForm.state.trim(),
-        emergency_contact_name: profileForm.emergency_contact_name.trim(),
-        emergency_contact_phone: profileForm.emergency_contact_phone.trim(),
-        notes: profileForm.notes.trim(),
-        skills,
-      };
-
-      const { data, error } = await supabase
-        .from("contractors")
-        .update(updatePayload)
-        .eq("id", contractor.id)
-        .select()
-        .single();
-
-      if (error) {
-        setMessage(error.message);
-        return;
-      }
-
-      setContractor(data);
-      setProfileForm({
-        first_name: data.first_name || "",
-        last_name: data.last_name || "",
-        phone: data.phone || "",
-        company: data.company || "",
-        city: data.city || "",
-        state: data.state || "",
-        emergency_contact_name: data.emergency_contact_name || "",
-        emergency_contact_phone: data.emergency_contact_phone || "",
-        notes: data.notes || "",
-        skillsText: Array.isArray(data.skills) ? data.skills.join(", ") : "",
-      });
-      setEditMode(false);
-      setMessage("Profile updated successfully.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function cancelEdit() {
-    if (!contractor) return;
-    setProfileForm({
-      first_name: contractor.first_name || "",
-      last_name: contractor.last_name || "",
-      phone: contractor.phone || "",
-      company: contractor.company || "",
-      city: contractor.city || "",
-      state: contractor.state || "",
-      emergency_contact_name: contractor.emergency_contact_name || "",
-      emergency_contact_phone: contractor.emergency_contact_phone || "",
-      notes: contractor.notes || "",
-      skillsText: Array.isArray(contractor.skills)
-        ? contractor.skills.join(", ")
-        : "",
+  const eventMap = useMemo(() => {
+    const map: Record<number, EventItem> = {};
+    events.forEach((event) => {
+      map[event.id] = event;
     });
-    setEditMode(false);
-    setMessage("");
-  }
+    return map;
+  }, [events]);
 
-  async function submitAvailability() {
-    if (!contractor) return;
-    if (!availabilityForm.start_date || !availabilityForm.end_date) {
-      setMessage("Availability start and end date are required.");
-      return;
-    }
-
-    const { error } = await supabase.from("contractor_availability").insert({
-      contractor_id: contractor.id,
-      start_date: availabilityForm.start_date,
-      end_date: availabilityForm.end_date,
-      availability_status: availabilityForm.availability_status,
-      notes: availabilityForm.notes.trim() || null,
-    });
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    setAvailabilityForm({
-      start_date: "",
-      end_date: "",
-      availability_status: "Available",
-      notes: "",
-    });
-
-    setMessage("Availability submitted.");
-    loadAvailability(contractor.id);
-  }
-
-  async function uploadDocument(file: File | null) {
-    if (!contractor || !file) return;
-
-    try {
-      setUploading(true);
-      setMessage("");
-
-      const safeName = `${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
-      const path = `${contractor.id}/${safeName}`;
-
-      const { error } = await supabase.storage
-        .from("contractor-documents")
-        .upload(path, file, {
-          upsert: false,
-        });
-
-      if (error) {
-        setMessage(error.message);
-        return;
-      }
-
-      setMessage("Document uploaded.");
-      await loadDocuments(contractor.id);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function downloadDocument(path: string) {
-    const { data, error } = await supabase.storage
-      .from("contractor-documents")
-      .createSignedUrl(path, 60);
-
-    if (error || !data?.signedUrl) {
-      setMessage("Could not create download link for document.");
-      return;
-    }
-
-    window.open(data.signedUrl, "_blank");
-  }
-
-  async function handleClock(id: number, type: "in" | "out") {
-    const row = assignmentRows.find((item) => item.id === id);
-    if (!row) return;
-
-    try {
-      setClockingId(id);
-      setMessage("");
-
-      const event = row.event;
-      const position = await getCurrentPositionSafe();
-
-      let locationStamp = "location unavailable";
-      if (position) {
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
-        locationStamp = `${lat.toFixed(6)},${lon.toFixed(6)}`;
-
-        if (
-          event?.latitude &&
-          event?.longitude &&
-          Number(event.geofence_radius_feet || 0) > 0
-        ) {
-          const distance = distanceFeet(
-            lat,
-            lon,
-            Number(event.latitude),
-            Number(event.longitude)
-          );
-
-          if (distance > Number(event.geofence_radius_feet || 0)) {
-            setMessage(
-              `You are outside the allowed clock radius by about ${Math.round(
-                distance
-              )} ft.`
-            );
-            return;
-          }
-
-          locationStamp = `${locationStamp} (${Math.round(distance)} ft from venue)`;
-        }
-      }
-
-      const payload =
-        type === "in"
-          ? {
-              clock_in: nowTimeInput(),
-              clock_in_location: locationStamp,
-            }
-          : {
-              clock_out: nowTimeInput(),
-              clock_out_location: locationStamp,
-            };
-
-      const { error } = await supabase
-        .from("assignments")
-        .update(payload)
-        .eq("id", id);
-
-      if (error) {
-        setMessage(error.message);
-        return;
-      }
-
-      setAssignments((prev) =>
-        prev.map((item) => (item.id === id ? { ...item, ...payload } : item))
-      );
-      setMessage(type === "in" ? "Clock-in successful." : "Clock-out successful.");
-    } finally {
-      setClockingId(null);
-    }
-  }
-
-  function printPayStub() {
-    window.print();
-  }
+  const totalValue = assignments.reduce((sum, row) => sum + Number(row.rate || 0), 0);
+  const paidCount = assignments.filter((row) => row.paid).length;
 
   if (loading) {
     return (
@@ -630,34 +156,9 @@ export default function ContractorPage() {
     );
   }
 
-  if (!contractor) {
-    return (
-      <main className="min-h-screen bg-[#050505] p-8 text-white">
-        <h1 className="text-4xl font-bold">Contractor Portal</h1>
-        <p className="mt-4 text-red-300">
-          {message || "No contractor profile found."}
-        </p>
-        <button
-          onClick={signOut}
-          className="mt-6 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
-        >
-          Sign Out
-        </button>
-      </main>
-    );
-  }
-
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#050505] text-white">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute inset-0 bg-black/70" />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <img
-            src="/luxon-logo.png"
-            alt="Luxon Entertainment background"
-            className="w-[80vw] max-w-[1350px] opacity-[0.06] object-contain"
-          />
-        </div>
+    <main className="min-h-screen bg-[#050505] text-white">
+      <div className="pointer-events-none fixed inset-0">
         <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-amber-500/10 blur-3xl" />
         <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-yellow-300/5 blur-3xl" />
       </div>
@@ -673,17 +174,27 @@ export default function ContractorPage() {
               Contractor Portal
             </h1>
             <p className="mt-2 text-zinc-400">
-              {contractor.name} · {contractor.email || ""}
+              {contractor?.name} · {contractor?.email || ""}
             </p>
           </div>
 
-          <button
-            onClick={signOut}
-            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign Out
-          </button>
+          <div className="flex gap-3">
+            <Link
+              href="/contractor/requests"
+              className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+            >
+              <Briefcase className="h-4 w-4" />
+              Open Position Requests
+            </Link>
+
+            <button
+              onClick={signOut}
+              className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+            >
+              <LogOut className="mr-2 inline h-4 w-4" />
+              Sign Out
+            </button>
+          </div>
         </div>
 
         {message && (
@@ -692,653 +203,115 @@ export default function ContractorPage() {
           </div>
         )}
 
-        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
-            icon={<Briefcase className="h-5 w-5" />}
-            label="My Role"
-            value={contractor.role || "Contractor"}
-            sublabel="Current roster role"
-          />
-          <MetricCard
-            icon={<BadgeDollarSign className="h-5 w-5" />}
-            label="My Rate"
-            value={`${money(Number(contractor.rate || 0))} / ${contractor.rate_type || "day"}`}
-            sublabel="Configured pay rate"
-          />
-          <MetricCard
-            icon={<CalendarDays className="h-5 w-5" />}
-            label="Assignments"
-            value={String(assignments.length)}
-            sublabel={`${approvedJobs} approved · ${paidJobs} paid`}
-          />
-          <MetricCard
-            icon={<Clock3 className="h-5 w-5" />}
-            label="Tracked Hours"
-            value={totalTrackedHours.toFixed(2)}
-            sublabel={`${money(totalEarned)} total value`}
-          />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard icon={<ShieldCheck className="h-5 w-5" />} label="My Role" value={contractor?.role || "Contractor"} sublabel="Current roster role" />
+          <MetricCard icon={<DollarSign className="h-5 w-5" />} label="My Rate" value={`${money(Number(contractor?.rate || 0))} / ${contractor?.rate_type || "day"}`} sublabel="Configured pay rate" />
+          <MetricCard icon={<CalendarDays className="h-5 w-5" />} label="Assignments" value={String(assignments.length)} sublabel={`${paidCount} paid`} />
+          <MetricCard icon={<FileText className="h-5 w-5" />} label="Assignment Value" value={money(totalValue)} sublabel="Total assigned value" />
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <GlassCard>
-            <div className="mb-5 flex items-center justify-between">
-              <SectionTitle
-                icon={<User className="h-5 w-5" />}
-                title="My Profile"
-                subtitle="Keep your contractor details up to date"
-              />
+            <SectionTitle
+              icon={<User className="h-5 w-5" />}
+              title="My Profile"
+              subtitle="Contractor details on file"
+            />
 
-              {editMode ? (
-                <div className="flex gap-2">
-                  <button
-                    onClick={cancelEdit}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
-                  >
-                    <X className="h-4 w-4" />
-                    Cancel
-                  </button>
-                  <button
-                    onClick={saveProfile}
-                    disabled={saving}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-2 text-sm font-semibold text-black"
-                  >
-                    <Save className="h-4 w-4" />
-                    {saving ? "Saving..." : "Save Profile"}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setEditMode(true)}
-                  className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
-                >
-                  Edit Profile
-                </button>
-              )}
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              <MiniInfo icon={<User className="h-4 w-4" />} label="Name" value={contractor?.name || "--"} />
+              <MiniInfo icon={<Briefcase className="h-4 w-4" />} label="Role" value={contractor?.role || "--"} />
+              <MiniInfo icon={<Building2 className="h-4 w-4" />} label="Company" value={contractor?.company || "--"} />
+              <MiniInfo icon={<MapPin className="h-4 w-4" />} label="City / State" value={`${contractor?.city || "--"}${contractor?.state ? `, ${contractor.state}` : ""}`} />
+              <MiniInfo icon={<User className="h-4 w-4" />} label="Phone" value={contractor?.phone || "--"} />
+              <MiniInfo icon={<User className="h-4 w-4" />} label="Emergency Contact" value={contractor?.emergency_contact_name || "--"} />
             </div>
-
-            {editMode ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field
-                  label="First Name"
-                  value={profileForm.first_name}
-                  onChange={(v) => setProfileForm({ ...profileForm, first_name: v })}
-                />
-                <Field
-                  label="Last Name"
-                  value={profileForm.last_name}
-                  onChange={(v) => setProfileForm({ ...profileForm, last_name: v })}
-                />
-                <Field
-                  label="Phone"
-                  value={profileForm.phone}
-                  onChange={(v) => setProfileForm({ ...profileForm, phone: v })}
-                />
-                <Field
-                  label="Company"
-                  value={profileForm.company}
-                  onChange={(v) => setProfileForm({ ...profileForm, company: v })}
-                />
-                <Field
-                  label="City"
-                  value={profileForm.city}
-                  onChange={(v) => setProfileForm({ ...profileForm, city: v })}
-                />
-                <Field
-                  label="State"
-                  value={profileForm.state}
-                  onChange={(v) => setProfileForm({ ...profileForm, state: v })}
-                />
-                <Field
-                  label="Emergency Contact Name"
-                  value={profileForm.emergency_contact_name}
-                  onChange={(v) =>
-                    setProfileForm({ ...profileForm, emergency_contact_name: v })
-                  }
-                />
-                <Field
-                  label="Emergency Contact Phone"
-                  value={profileForm.emergency_contact_phone}
-                  onChange={(v) =>
-                    setProfileForm({ ...profileForm, emergency_contact_phone: v })
-                  }
-                />
-                <TextAreaField
-                  label="Skills"
-                  value={profileForm.skillsText}
-                  onChange={(v) => setProfileForm({ ...profileForm, skillsText: v })}
-                />
-                <TextAreaField
-                  label="Notes"
-                  value={profileForm.notes}
-                  onChange={(v) => setProfileForm({ ...profileForm, notes: v })}
-                />
-              </div>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                <InfoCard icon={<Phone className="h-4 w-4" />} label="Phone" value={contractor.phone || "Not added"} />
-                <InfoCard icon={<Building2 className="h-4 w-4" />} label="Company" value={contractor.company || "Not added"} />
-                <InfoCard
-                  icon={<MapPin className="h-4 w-4" />}
-                  label="City / State"
-                  value={
-                    [contractor.city, contractor.state].filter(Boolean).join(", ") ||
-                    "Not added"
-                  }
-                />
-                <InfoCard
-                  icon={<Briefcase className="h-4 w-4" />}
-                  label="Skills"
-                  value={contractor.skills?.length ? contractor.skills.join(", ") : "Not added"}
-                />
-                <InfoCard
-                  icon={<User className="h-4 w-4" />}
-                  label="Emergency Contact"
-                  value={contractor.emergency_contact_name || "Not added"}
-                />
-                <InfoCard
-                  icon={<Phone className="h-4 w-4" />}
-                  label="Emergency Phone"
-                  value={contractor.emergency_contact_phone || "Not added"}
-                />
-              </div>
-            )}
           </GlassCard>
 
           <GlassCard>
             <SectionTitle
-              icon={<CheckCircle2 className="h-5 w-5" />}
-              title="Summary"
-              subtitle="Quick stats from your current assignments"
+              icon={<Briefcase className="h-5 w-5" />}
+              title="Open Positions"
+              subtitle="See positions posted to all contractors"
             />
-
-            <div className="mt-5 space-y-4">
-              <SummaryRow label="Approved Jobs" value={String(approvedJobs)} />
-              <SummaryRow label="Paid Jobs" value={String(paidJobs)} />
-              <SummaryRow label="Tracked Hours" value={totalTrackedHours.toFixed(2)} />
-              <SummaryRow label="Total Assignment Value" value={money(totalEarned)} />
-              <SummaryRow
-                label="Primary Email"
-                value={contractor.email || "Not added"}
-              />
-              <SummaryRow
-                label="Rate Type"
-                value={contractor.rate_type || "day"}
-              />
-            </div>
-          </GlassCard>
-        </div>
-
-        <div className="mt-6 grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-          <GlassCard>
-            <div className="mb-5 flex items-center justify-between">
-              <SectionTitle
-                icon={<CalendarDays className="h-5 w-5" />}
-                title="Availability Submission"
-                subtitle="Send your available or unavailable dates"
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field
-                label="Start Date"
-                type="date"
-                value={availabilityForm.start_date}
-                onChange={(v) =>
-                  setAvailabilityForm({ ...availabilityForm, start_date: v })
-                }
-              />
-              <Field
-                label="End Date"
-                type="date"
-                value={availabilityForm.end_date}
-                onChange={(v) =>
-                  setAvailabilityForm({ ...availabilityForm, end_date: v })
-                }
-              />
-              <SelectField
-                label="Status"
-                value={availabilityForm.availability_status}
-                onChange={(v) =>
-                  setAvailabilityForm({
-                    ...availabilityForm,
-                    availability_status: v,
-                  })
-                }
-                options={["Available", "Unavailable", "Preferred"]}
-              />
-              <div />
-              <TextAreaField
-                label="Notes"
-                value={availabilityForm.notes}
-                onChange={(v) =>
-                  setAvailabilityForm({ ...availabilityForm, notes: v })
-                }
-              />
-            </div>
-
-            <div className="mt-4">
-              <button
-                onClick={submitAvailability}
-                className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-5 py-3 font-semibold text-black"
+            <div className="mt-5 rounded-2xl border border-white/10 bg-black/25 p-4">
+              <div className="text-sm text-zinc-300">
+                Managers can post open positions without selecting a contractor first.
+              </div>
+              <div className="mt-2 text-sm text-zinc-400">
+                Open the requests page to respond Available or Unavailable.
+              </div>
+              <Link
+                href="/contractor/requests"
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
               >
-                Submit Availability
-              </button>
-            </div>
-
-            <div className="mt-6 space-y-3">
-              {availability.length ? (
-                availability.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-2xl border border-white/10 bg-black/25 p-4"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-medium">
-                          {dateLabel(item.start_date)} - {dateLabel(item.end_date)}
-                        </div>
-                        <div className="text-sm text-zinc-400">
-                          {item.notes || "No notes"}
-                        </div>
-                      </div>
-                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-zinc-300">
-                        {item.availability_status}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <EmptyState text="No availability submissions yet." />
-              )}
-            </div>
-          </GlassCard>
-
-          <GlassCard>
-            <SectionTitle
-              icon={<Upload className="h-5 w-5" />}
-              title="Documents"
-              subtitle="Upload ID, certificates, or other contractor files"
-            />
-
-            <div className="mt-5">
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-wide text-zinc-500">
-                  Upload Document
-                </span>
-                <input
-                  type="file"
-                  onChange={(e) => uploadDocument(e.target.files?.[0] || null)}
-                  className="block w-full rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-white"
-                />
-              </label>
-              <p className="mt-2 text-xs text-zinc-500">
-                {uploading ? "Uploading..." : "Uploads go to your contractor document folder."}
-              </p>
-            </div>
-
-            <div className="mt-6 space-y-3">
-              {documents.length ? (
-                documents.map((doc) => (
-                  <div
-                    key={doc.path}
-                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/25 p-4"
-                  >
-                    <div>
-                      <div className="font-medium">{doc.name}</div>
-                      <div className="text-xs text-zinc-500">
-                        {doc.updated_at ? new Date(doc.updated_at).toLocaleString() : ""}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => downloadDocument(doc.path)}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-white"
-                    >
-                      <Download className="h-4 w-4" />
-                      Open
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <EmptyState text="No uploaded documents yet." />
-              )}
+                <Upload className="h-4 w-4" />
+                View Open Position Requests
+              </Link>
             </div>
           </GlassCard>
         </div>
 
-        <div className="mt-6 grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="mt-6">
           <GlassCard>
             <SectionTitle
               icon={<CalendarDays className="h-5 w-5" />}
               title="My Assignments"
-              subtitle="Your jobs, directions, and clock tools"
+              subtitle="Confirmed and scheduled work"
             />
-
-            <div className="mt-6 space-y-4">
-              {assignmentRows.length ? (
-                assignmentRows.map((row) => (
-                  <div
-                    key={row.id}
-                    className="rounded-3xl border border-white/10 bg-black/25 p-5"
-                  >
-                    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <div className="mb-2 flex items-center gap-2">
-                          <h3 className="text-xl font-semibold">
-                            {row.position || "Assignment"}
-                          </h3>
-                          <span
-                            className={`rounded-full border px-2.5 py-1 text-[11px] ${eventTone(
-                              row.event?.status
-                            )}`}
-                          >
-                            {row.event?.status || "Scheduled"}
-                          </span>
+            <div className="mt-5 space-y-3">
+              {assignments.length ? (
+                assignments.map((row) => {
+                  const event = eventMap[row.event_id];
+                  return (
+                    <div
+                      key={row.id}
+                      className="rounded-2xl border border-white/10 bg-black/25 p-4"
+                    >
+                      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div className="font-semibold">{row.position || "Assignment"}</div>
+                          <div className="text-sm text-zinc-400">
+                            {event?.name || "Event"}
+                            {event?.venue ? ` · ${event.venue}` : ""}
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-500">
+                            {event?.address || ""}
+                          </div>
                         </div>
 
-                        <div className="text-sm text-zinc-400">
-                          {row.event?.name || "Event"} · {row.event?.venue || ""}
-                        </div>
-                        <div className="mt-1 text-sm text-zinc-500">
-                          {row.event?.address ? `· ${row.event.address}` : ""}
-                        </div>
-                      </div>
-
-                      <div className="text-left md:text-right">
-                        <div className="text-2xl font-semibold text-amber-300">
-                          {money(row.total)}
-                        </div>
-                        <div className="text-xs text-zinc-500">
-                          {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+                        <div className="text-left md:text-right">
+                          <div className="font-semibold text-amber-300">
+                            {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {dateLabel(row.work_date)} · {timeLabel(row.call_time)}
+                          </div>
                         </div>
                       </div>
                     </div>
-
-                    <div className="mb-4 grid gap-3 md:grid-cols-4">
-                      <MiniInfo
-                        icon={<CalendarDays className="h-4 w-4" />}
-                        label="Work Date"
-                        value={dateLabel(row.work_date)}
-                      />
-                      <MiniInfo
-                        icon={<Clock3 className="h-4 w-4" />}
-                        label="Call Time"
-                        value={timeLabel(row.call_time)}
-                      />
-                      <MiniInfo
-                        icon={<Clock3 className="h-4 w-4" />}
-                        label="Clock In / Out"
-                        value={`${timeLabel(row.clock_in)} - ${timeLabel(row.clock_out)}`}
-                      />
-                      <MiniInfo
-                        icon={<BadgeDollarSign className="h-4 w-4" />}
-                        label="Tracked Hours"
-                        value={row.hours.toFixed(2)}
-                      />
-                    </div>
-
-                    <div className="mb-4 flex flex-wrap gap-2">
-                      <StatusPill active={!!row.confirmed} text="Confirmed" />
-                      <StatusPill active={!!row.approved} text="Approved" />
-                      <StatusPill active={!!row.paid} text="Paid" />
-                    </div>
-
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        onClick={() => handleClock(row.id, "in")}
-                        disabled={clockingId === row.id}
-                        className="rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-black disabled:opacity-60"
-                      >
-                        Clock In
-                      </button>
-                      <button
-                        onClick={() => handleClock(row.id, "out")}
-                        disabled={clockingId === row.id}
-                        className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 font-semibold text-red-200 disabled:opacity-60"
-                      >
-                        Clock Out
-                      </button>
-                      <a
-                        href={mapsUrl(row.event?.address)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
-                      >
-                        <Navigation className="h-4 w-4" />
-                        Directions
-                      </a>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
-                <EmptyState text="No assignments yet." />
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-sm text-zinc-400">
+                  No assignments yet.
+                </div>
               )}
             </div>
           </GlassCard>
-
-          <GlassCard>
-            <SectionTitle
-              icon={<FileText className="h-5 w-5" />}
-              title="Pay Stub View"
-              subtitle="Branded printable summary"
-            />
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <Field
-                label="Reference Number"
-                value={payStubForm.reference_number}
-                onChange={(v) =>
-                  setPayStubForm({ ...payStubForm, reference_number: v })
-                }
-              />
-              <div />
-              <Field
-                label="Deductions"
-                type="number"
-                value={payStubForm.deductions}
-                onChange={(v) => setPayStubForm({ ...payStubForm, deductions: v })}
-              />
-              <Field
-                label="Reimbursements"
-                type="number"
-                value={payStubForm.reimbursements}
-                onChange={(v) =>
-                  setPayStubForm({ ...payStubForm, reimbursements: v })
-                }
-              />
-              <TextAreaField
-                label="Notes"
-                value={payStubForm.notes}
-                onChange={(v) => setPayStubForm({ ...payStubForm, notes: v })}
-              />
-            </div>
-
-            <div
-              id="contractor-paystub-print"
-              className="mt-6 rounded-3xl border border-white/10 bg-white p-8 text-slate-900"
-            >
-              <div className="mb-8 flex items-start justify-between border-b border-slate-200 pb-6">
-                <div className="max-w-[260px]">
-                  <img
-                    src="/luxon-logo.png"
-                    alt="Luxon Entertainment"
-                    className="h-auto w-full object-contain"
-                  />
-                </div>
-
-                <div className="text-right">
-                  <div className="text-3xl font-bold tracking-tight">PAY STUB</div>
-                  <div className="mt-2 text-sm text-slate-500">
-                    Reference: {payStubForm.reference_number}
-                  </div>
-                  <div className="text-sm text-slate-500">
-                    Generated: {new Date().toLocaleDateString("en-US")}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mb-6 grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-xs uppercase tracking-wide text-slate-400">
-                    Contractor
-                  </div>
-                  <div className="mt-2 text-lg font-bold">{contractor.name}</div>
-                  <div>{contractor.email || ""}</div>
-                  <div>{contractor.phone || ""}</div>
-                  <div>
-                    {[contractor.city, contractor.state].filter(Boolean).join(", ")}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-xs uppercase tracking-wide text-slate-400">
-                    Pay Period
-                  </div>
-                  <div className="mt-2 text-lg font-bold">
-                    {startOfPayPeriod(payStubRows)} - {endOfPayPeriod(payStubRows)}
-                  </div>
-                  <div className="mt-3 text-xs uppercase tracking-wide text-slate-400">
-                    Rate
-                  </div>
-                  <div className="mt-1">
-                    {money(Number(contractor.rate || 0))} / {contractor.rate_type || "day"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-300 bg-slate-100">
-                      <th className="p-3">Date</th>
-                      <th className="p-3">Event</th>
-                      <th className="p-3">Position</th>
-                      <th className="p-3">Hours</th>
-                      <th className="p-3">Rate</th>
-                      <th className="p-3 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {payStubRows.length ? (
-                      payStubRows.map((row) => (
-                        <tr key={row.id} className="border-b border-slate-200">
-                          <td className="p-3">{dateLabel(row.work_date)}</td>
-                          <td className="p-3">{row.event?.name || "Event"}</td>
-                          <td className="p-3">{row.position || "Assignment"}</td>
-                          <td className="p-3">{row.hours.toFixed(2)}</td>
-                          <td className="p-3">
-                            {money(Number(row.rate || 0))} / {row.rate_type || "day"}
-                          </td>
-                          <td className="p-3 text-right font-semibold">
-                            {money(row.total)}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td className="p-3" colSpan={6}>
-                          No approved pay stub items yet.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="mt-6 grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-xs uppercase tracking-wide text-slate-400">
-                    Notes
-                  </div>
-                  <div className="mt-2 min-h-[72px] text-sm text-slate-700">
-                    {payStubForm.notes || "No additional notes."}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-slate-100 p-5">
-                  <div className="mb-2 flex justify-between">
-                    <span>Gross Pay</span>
-                    <span>{money(grossPay)}</span>
-                  </div>
-                  <div className="mb-2 flex justify-between">
-                    <span>Deductions</span>
-                    <span>- {money(deductions)}</span>
-                  </div>
-                  <div className="mb-2 flex justify-between">
-                    <span>Reimbursements</span>
-                    <span>+ {money(reimbursements)}</span>
-                  </div>
-                  <div className="flex justify-between border-t border-slate-300 pt-3 text-xl font-bold">
-                    <span>Net Pay</span>
-                    <span>{money(netPay)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-10 grid gap-10 md:grid-cols-2">
-                <div>
-                  <div className="mb-12 border-b border-slate-400" />
-                  <div className="text-sm text-slate-600">Contractor Signature</div>
-                </div>
-                <div>
-                  <div className="mb-12 border-b border-slate-400" />
-                  <div className="text-sm text-slate-600">Authorized Signature</div>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={printPayStub}
-              className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
-            >
-              <Download className="h-4 w-4" />
-              Download / Print Pay Stub
-            </button>
-          </GlassCard>
         </div>
       </div>
-
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          #contractor-paystub-print,
-          #contractor-paystub-print * {
-            visibility: visible !important;
-          }
-          #contractor-paystub-print {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            background: white !important;
-            color: black !important;
-            padding: 24px !important;
-            border: none !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
-          }
-          @page {
-            size: letter;
-            margin: 0.5in;
-          }
-        }
-      `}</style>
     </main>
   );
 }
 
 function GlassCard({
   children,
-  className = "",
 }: {
   children: React.ReactNode;
-  className?: string;
 }) {
   return (
-    <section
-      className={`rounded-[28px] border border-white/10 bg-black/55 p-6 shadow-[0_10px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl ${className}`}
-    >
+    <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl">
       {children}
     </section>
   );
@@ -1387,41 +360,6 @@ function MetricCard({
   );
 }
 
-function InfoCard({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-      <div className="mb-2 flex items-center gap-2 text-zinc-500">
-        {icon}
-        <span className="text-xs uppercase tracking-wide">{label}</span>
-      </div>
-      <div className="text-sm font-medium text-zinc-100">{value}</div>
-    </div>
-  );
-}
-
-function SummaryRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
-      <span className="text-sm text-zinc-400">{label}</span>
-      <span className="font-medium text-white">{value}</span>
-    </div>
-  );
-}
-
 function MiniInfo({
   icon,
   label,
@@ -1438,114 +376,6 @@ function MiniInfo({
         <span className="text-xs uppercase tracking-wide">{label}</span>
       </div>
       <div className="text-sm font-medium text-zinc-100">{value}</div>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
-        {label}
-      </span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-12 w-full rounded-2xl border border-white/10 bg-black/35 px-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
-      />
-    </label>
-  );
-}
-
-function TextAreaField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="block md:col-span-2">
-      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
-        {label}
-      </span>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/35 p-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
-      />
-    </label>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: string[];
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-12 w-full rounded-2xl border border-white/10 bg-black/35 px-4 text-white outline-none focus:border-amber-400/40"
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function StatusPill({
-  active,
-  text,
-}: {
-  active: boolean;
-  text: string;
-}) {
-  return (
-    <span
-      className={`rounded-full border px-3 py-1 text-xs ${
-        active
-          ? "border-emerald-400/20 bg-emerald-500/20 text-emerald-300"
-          : "border-white/10 bg-white/[0.04] text-zinc-400"
-      }`}
-    >
-      {text}
-    </span>
-  );
-}
-
-function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-sm text-zinc-400">
-      {text}
     </div>
   );
 }
