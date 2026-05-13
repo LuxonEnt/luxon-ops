@@ -25,6 +25,8 @@ import {
   User,
 } from "lucide-react";
 
+const COMPANY_LOGO_PATH = "/publicluxon-logo.png.png";
+
 type Contractor = {
   id: number;
   user_id?: string | null;
@@ -141,6 +143,7 @@ function buildInvoiceHtml(
   assignment: AssignmentSummary
 ) {
   const event = assignment.event;
+  const logoUrl = `${window.location.origin}${COMPANY_LOGO_PATH}`;
 
   return `
 <!DOCTYPE html>
@@ -179,6 +182,18 @@ function buildInvoiceHtml(
       border-bottom: 1px solid #e2e8f0;
       padding-bottom: 24px;
       margin-bottom: 24px;
+      align-items: flex-start;
+    }
+    .brand {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .logo {
+      width: 120px;
+      height: auto;
+      object-fit: contain;
+      display: block;
     }
     .company {
       font-size: 30px;
@@ -283,12 +298,15 @@ function buildInvoiceHtml(
 <body>
   <div class="sheet">
     <div class="header">
-      <div>
-        <div class="company">Luxon Entertainment LLC</div>
-        <div class="subtle">Contractor Pay Stub / Invoice Record</div>
-        <div class="subtle" style="margin-top: 10px;">Generated: ${escapeHtml(
-          new Date().toLocaleDateString("en-US")
-        )}</div>
+      <div class="brand">
+        <img src="${escapeHtml(logoUrl)}" alt="Luxon Entertainment Logo" class="logo" />
+        <div>
+          <div class="company">Luxon Entertainment LLC</div>
+          <div class="subtle">Contractor Pay Stub / Invoice Record</div>
+          <div class="subtle" style="margin-top: 10px;">Generated: ${escapeHtml(
+            new Date().toLocaleDateString("en-US")
+          )}</div>
+        </div>
       </div>
 
       <div class="approved">
@@ -1171,13 +1189,20 @@ export default function ContractorPage() {
 
             <div className="rounded-3xl border border-white/10 bg-white p-10 text-slate-900">
               <div className="mb-8 flex items-start justify-between border-b border-slate-200 pb-6">
-                <div>
-                  <div className="text-3xl font-bold">Luxon Entertainment LLC</div>
-                  <div className="mt-1 text-slate-500">
-                    Contractor Pay Stub / Invoice Record
-                  </div>
-                  <div className="mt-3 text-sm text-slate-500">
-                    Generated: {new Date().toLocaleDateString("en-US")}
+                <div className="flex items-start gap-4">
+                  <img
+                    src={COMPANY_LOGO_PATH}
+                    alt="Luxon Entertainment Logo"
+                    className="h-20 w-auto object-contain"
+                  />
+                  <div>
+                    <div className="text-3xl font-bold">Luxon Entertainment LLC</div>
+                    <div className="mt-1 text-slate-500">
+                      Contractor Pay Stub / Invoice Record
+                    </div>
+                    <div className="mt-3 text-sm text-slate-500">
+                      Generated: {new Date().toLocaleDateString("en-US")}
+                    </div>
                   </div>
                 </div>
 
