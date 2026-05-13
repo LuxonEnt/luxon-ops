@@ -25,7 +25,7 @@ import {
   User,
 } from "lucide-react";
 
-const COMPANY_LOGO_PATH = "/publicluxon-logo.png.png";
+const COMPANY_LOGO_PATH = "/luxon-logo.png";
 
 type Contractor = {
   id: number;
