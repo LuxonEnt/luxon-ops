@@ -18,6 +18,7 @@ import {
   LogOut,
   MapPin,
   Plus,
+  RefreshCw,
   Search,
   Sparkles,
   Trash2,
@@ -174,6 +175,7 @@ export default function ManagerPage() {
   const [email, setEmail] = useState("");
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [loadingData, setLoadingData] = useState(true);
+  const [loadingDocs, setLoadingDocs] = useState(false);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [assignmentFilter, setAssignmentFilter] = useState("all");
@@ -184,6 +186,7 @@ export default function ManagerPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [availability, setAvailability] = useState<AvailabilityItem[]>([]);
   const [documents, setDocuments] = useState<StoredDoc[]>([]);
+  const [documentErrors, setDocumentErrors] = useState<string[]>([]);
 
   const [newEvent, setNewEvent] = useState({
     name: "",
@@ -262,11 +265,13 @@ export default function ManagerPage() {
       setStatus("allowed");
     }
 
-    checkManagerAccess();
+    void checkManagerAccess();
   }, []);
 
   useEffect(() => {
-    if (status === "allowed") loadData();
+    if (status === "allowed") {
+      void loadData();
+    }
   }, [status]);
 
   async function loadData() {
@@ -297,15 +302,17 @@ export default function ManagerPage() {
     const nextEvents = eventsData || [];
     const nextContractors = contractorsData || [];
     const nextAssignments = assignmentsData || [];
+    const nextAvailability = availabilityData || [];
 
     setEvents(nextEvents);
     setContractors(nextContractors);
     setAssignments(nextAssignments);
-    setAvailability(availabilityData || []);
+    setAvailability(nextAvailability);
 
     if (!invoiceEventId && nextEvents[0]) {
       setInvoiceEventId(String(nextEvents[0].id));
     }
+
     if (!invoiceContractorId && nextContractors[0]) {
       setInvoiceContractorId(String(nextContractors[0].id));
     }
@@ -315,7 +322,11 @@ export default function ManagerPage() {
   }
 
   async function loadDocuments(contractorRows: Contractor[]) {
+    setLoadingDocs(true);
+    setDocumentErrors([]);
+
     const allDocs: StoredDoc[] = [];
+    const errors: string[] = [];
 
     for (const contractor of contractorRows) {
       const { data, error } = await supabase.storage
@@ -325,7 +336,10 @@ export default function ManagerPage() {
           sortBy: { column: "name", order: "asc" },
         });
 
-      if (error) continue;
+      if (error) {
+        errors.push(`${contractor.name}: ${error.message}`);
+        continue;
+      }
 
       (data || []).forEach((item: any) => {
         allDocs.push({
@@ -339,6 +353,12 @@ export default function ManagerPage() {
     }
 
     setDocuments(allDocs);
+    setDocumentErrors(errors);
+    setLoadingDocs(false);
+  }
+
+  async function refreshDocuments() {
+    await loadDocuments(contractors);
   }
 
   async function openDocument(path: string) {
@@ -393,7 +413,7 @@ export default function ManagerPage() {
     });
 
     setMessage("Event created.");
-    loadData();
+    await loadData();
   }
 
   async function addContractor() {
@@ -440,7 +460,7 @@ export default function ManagerPage() {
     });
 
     setMessage("Contractor created.");
-    loadData();
+    await loadData();
   }
 
   async function addAssignment() {
@@ -483,7 +503,7 @@ export default function ManagerPage() {
     });
 
     setMessage("Assignment created.");
-    loadData();
+    await loadData();
   }
 
   async function addBulkAssignments() {
@@ -536,7 +556,7 @@ export default function ManagerPage() {
     });
 
     setMessage("Bulk assignments created.");
-    loadData();
+    await loadData();
   }
 
   async function updateEventField(
@@ -544,13 +564,15 @@ export default function ManagerPage() {
     field: keyof EventItem,
     value: string
   ) {
-    const payload: any = { [field]: value || null };
+    const payload: Record<string, string | null> = { [field]: value || null };
     const { error } = await supabase.from("events").update(payload).eq("id", id);
+
     if (error) {
       setMessage(error.message);
       return;
     }
-    loadData();
+
+    await loadData();
   }
 
   async function updateContractorField(
@@ -564,7 +586,7 @@ export default function ManagerPage() {
     const nextName =
       `${nextFirst || ""} ${nextLast || ""}`.trim() || contractor.name || "";
 
-    const payload: any = { [field]: value || null };
+    const payload: Record<string, string | number | null> = { [field]: value || null };
     if (field === "rate") payload[field] = Number(value || 0);
     if (field === "first_name" || field === "last_name") payload.name = nextName;
 
@@ -577,7 +599,8 @@ export default function ManagerPage() {
       setMessage(error.message);
       return;
     }
-    loadData();
+
+    await loadData();
   }
 
   async function updateAssignmentField(
@@ -585,7 +608,7 @@ export default function ManagerPage() {
     field: keyof Assignment,
     value: string | boolean
   ) {
-    const payload: any = { [field]: value };
+    const payload: Record<string, string | boolean | number> = { [field]: value };
     if (field === "rate") payload[field] = Number(value || 0);
 
     const { error } = await supabase
@@ -597,40 +620,47 @@ export default function ManagerPage() {
       setMessage(error.message);
       return;
     }
-    loadData();
+
+    await loadData();
   }
 
   async function removeEvent(id: number) {
     const ok = window.confirm("Delete this event?");
     if (!ok) return;
+
     const { error } = await supabase.from("events").delete().eq("id", id);
     if (error) {
       setMessage(error.message);
       return;
     }
-    loadData();
+
+    await loadData();
   }
 
   async function removeContractor(id: number) {
     const ok = window.confirm("Delete this contractor?");
     if (!ok) return;
+
     const { error } = await supabase.from("contractors").delete().eq("id", id);
     if (error) {
       setMessage(error.message);
       return;
     }
-    loadData();
+
+    await loadData();
   }
 
   async function removeAssignment(id: number) {
     const ok = window.confirm("Delete this assignment?");
     if (!ok) return;
+
     const { error } = await supabase.from("assignments").delete().eq("id", id);
     if (error) {
       setMessage(error.message);
       return;
     }
-    loadData();
+
+    await loadData();
   }
 
   const eventMap = useMemo(() => {
@@ -707,9 +737,7 @@ export default function ManagerPage() {
   );
 
   const filteredAssignments = payrollRows.filter((row) => {
-    const matchesSearch = `${row.contractor?.name || ""} ${row.event?.name || ""} ${
-      row.position || ""
-    }`
+    const matchesSearch = `${row.contractor?.name || ""} ${row.event?.name || ""} ${row.position || ""}`
       .toLowerCase()
       .includes(search.toLowerCase());
 
@@ -718,16 +746,13 @@ export default function ManagerPage() {
     if (assignmentFilter === "confirmed") return !!row.confirmed;
     if (assignmentFilter === "approved") return !!row.approved;
     if (assignmentFilter === "paid") return !!row.paid;
-    if (assignmentFilter === "pending")
-      return !row.confirmed || !row.approved || !row.paid;
+    if (assignmentFilter === "pending") return !row.confirmed || !row.approved || !row.paid;
 
     return true;
   });
 
   const filteredPayrollRows = payrollRows.filter((row) => {
-    const matchesSearch = `${row.contractor?.name || ""} ${row.event?.name || ""} ${
-      row.position || ""
-    }`
+    const matchesSearch = `${row.contractor?.name || ""} ${row.event?.name || ""} ${row.position || ""}`
       .toLowerCase()
       .includes(search.toLowerCase());
 
@@ -843,12 +868,30 @@ export default function ManagerPage() {
 
         {activeTab === "overview" && !loadingData && (
           <div className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <MetricCard icon={<CalendarDays className="h-5 w-5" />} label="Events" value={String(events.length)} sublabel="Active schedule items" />
               <MetricCard icon={<Users className="h-5 w-5" />} label="Contractors" value={String(contractors.length)} sublabel="Rostered crew" />
               <MetricCard icon={<ClipboardList className="h-5 w-5" />} label="Assignments" value={String(assignments.length)} sublabel={`${approvedCount} approved records`} />
               <MetricCard icon={<DollarSign className="h-5 w-5" />} label="Payroll" value={money(totalPayroll)} sublabel={`${unpaidCount} unpaid items`} />
+              <MetricCard icon={<FolderOpen className="h-5 w-5" />} label="Documents" value={String(documents.length)} sublabel={`${availability.length} availability rows`} />
             </div>
+
+            {documentErrors.length > 0 ? (
+              <GlassCard>
+                <SectionTitle
+                  icon={<FolderOpen className="h-5 w-5" />}
+                  title="Document Load Warnings"
+                  subtitle="These contractor folders could not be read"
+                />
+                <div className="mt-4 space-y-2">
+                  {documentErrors.map((err) => (
+                    <div key={err} className="rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-200">
+                      {err}
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+            ) : null}
 
             <div className="grid gap-6 xl:grid-cols-3">
               <GlassCard className="xl:col-span-2">
@@ -1502,11 +1545,30 @@ export default function ManagerPage() {
           <div className="space-y-6">
             <div className="grid gap-6 xl:grid-cols-2">
               <GlassCard>
-                <SectionTitle
-                  icon={<FolderOpen className="h-5 w-5" />}
-                  title="Uploaded Contractor Documents"
-                  subtitle={`${filteredDocuments.length} matching files`}
-                />
+                <div className="flex items-start justify-between gap-4">
+                  <SectionTitle
+                    icon={<FolderOpen className="h-5 w-5" />}
+                    title="Uploaded Contractor Documents"
+                    subtitle={`${filteredDocuments.length} files found`}
+                  />
+                  <button
+                    onClick={refreshDocuments}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loadingDocs ? "animate-spin" : ""}`} />
+                    Refresh Files
+                  </button>
+                </div>
+
+                {documentErrors.length > 0 ? (
+                  <div className="mt-4 space-y-2">
+                    {documentErrors.map((err) => (
+                      <div key={err} className="rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-200">
+                        {err}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
 
                 <div className="mt-5 space-y-3">
                   {filteredDocuments.length ? (
@@ -1517,13 +1579,10 @@ export default function ManagerPage() {
                       >
                         <div>
                           <div className="font-medium">{doc.name}</div>
-                          <div className="text-sm text-zinc-400">
-                            {doc.contractor_name}
-                          </div>
+                          <div className="text-sm text-zinc-400">{doc.contractor_name}</div>
                           <div className="text-xs text-zinc-500">
-                            {doc.updated_at
-                              ? new Date(doc.updated_at).toLocaleString()
-                              : ""}
+                            folder: {doc.contractor_id}
+                            {doc.updated_at ? ` · ${new Date(doc.updated_at).toLocaleString()}` : ""}
                           </div>
                         </div>
 
@@ -1537,7 +1596,7 @@ export default function ManagerPage() {
                       </div>
                     ))
                   ) : (
-                    <EmptyState text="No contractor documents found." />
+                    <EmptyState text={loadingDocs ? "Loading contractor documents..." : "No contractor documents found."} />
                   )}
                 </div>
               </GlassCard>
@@ -1546,7 +1605,7 @@ export default function ManagerPage() {
                 <SectionTitle
                   icon={<CalendarDays className="h-5 w-5" />}
                   title="Availability Submissions"
-                  subtitle={`${filteredAvailability.length} matching rows`}
+                  subtitle={`${filteredAvailability.length} rows found`}
                 />
 
                 <div className="mt-5 space-y-3">
@@ -1559,7 +1618,7 @@ export default function ManagerPage() {
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <div className="font-medium">
-                              {contractorMap[row.contractor_id]?.name || "Contractor"}
+                              {contractorMap[row.contractor_id]?.name || `Contractor #${row.contractor_id}`}
                             </div>
                             <div className="text-sm text-zinc-400">
                               {dateLabel(row.start_date)} - {dateLabel(row.end_date)}
