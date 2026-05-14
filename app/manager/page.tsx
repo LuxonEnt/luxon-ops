@@ -604,6 +604,68 @@ export default function ManagerPage() {
     await loadAll();
   }
 
+  async function deleteContractor(row: Contractor) {
+    const ok = window.confirm(
+      `Delete contractor profile?\n\n${row.name}\n${row.email || ""}\n\nThis will remove the contractor profile, assignments, availability submissions, crew request responses, and uploaded contractor documents from the portal. This does not delete the Supabase Auth login account.`
+    );
+
+    if (!ok) return;
+
+    setMessage("Deleting contractor profile...");
+
+    const docs = await supabase.storage
+      .from("contractor-documents")
+      .list(String(row.id), { limit: 1000 });
+
+    if (docs.data && docs.data.length) {
+      const paths = docs.data.map((item: any) => `${row.id}/${item.name}`);
+      await supabase.storage.from("contractor-documents").remove(paths);
+    }
+
+    const deleteAssignments = await supabase
+      .from("assignments")
+      .delete()
+      .eq("contractor_id", row.id);
+
+    if (deleteAssignments.error) {
+      setMessage(deleteAssignments.error.message);
+      return;
+    }
+
+    const deleteResponses = await supabase
+      .from("crew_request_responses")
+      .delete()
+      .eq("contractor_id", row.id);
+
+    if (deleteResponses.error) {
+      setMessage(deleteResponses.error.message);
+      return;
+    }
+
+    const deleteAvailability = await supabase
+      .from("contractor_availability")
+      .delete()
+      .eq("contractor_id", row.id);
+
+    if (deleteAvailability.error) {
+      setMessage(deleteAvailability.error.message);
+      return;
+    }
+
+    const deleteContractorResult = await supabase
+      .from("contractors")
+      .delete()
+      .eq("id", row.id);
+
+    if (deleteContractorResult.error) {
+      setMessage(deleteContractorResult.error.message);
+      return;
+    }
+
+    setMessage("Contractor profile deleted.");
+    await loadAll();
+  }
+
   async function createAssignment() {
     if (
       !assignmentForm.event_id ||
@@ -1302,6 +1364,7 @@ export default function ManagerPage() {
                           key={contractor.id}
                           contractor={contractor}
                           onSave={saveContractor}
+                          onDelete={deleteContractor}
                         />
                       ))
                     ) : (
@@ -1939,9 +2002,11 @@ function EditableEventCard({
 function EditableContractorCard({
   contractor,
   onSave,
+  onDelete,
 }: {
   contractor: Contractor;
   onSave: (contractor: Contractor) => void;
+  onDelete: (contractor: Contractor) => void;
 }) {
   const [row, setRow] = useState<Contractor>(contractor);
 
@@ -2038,12 +2103,22 @@ function EditableContractorCard({
         </div>
       </div>
 
-      <button
-        onClick={() => onSave(row)}
-        className="mt-4 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
-      >
-        Save Contractor
-      </button>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <button
+          onClick={() => onSave(row)}
+          className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+        >
+          Save Contractor
+        </button>
+
+        <button
+          onClick={() => onDelete(contractor)}
+          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-300"
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete Contractor Profile
+        </button>
+      </div>
     </div>
   );
 }
