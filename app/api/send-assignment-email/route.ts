@@ -20,6 +20,9 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 const LOGO_URL = "https://luxon-ops.vercel.app/luxon-logo.png";
 const PORTAL_URL = "https://luxon-ops.vercel.app/login";
+const FROM_EMAIL =
+  "Luxon Entertainment <notifications@mail.luxonentertainment.com>";
+const REPLY_TO_EMAIL = "Luxon Entertainment <Luxon.entertainment@gmail.com>";
 
 function escapeHtml(value: string) {
   return String(value || "")
@@ -285,9 +288,9 @@ export async function POST(request: Request) {
     }
 
     const emailResult = await resend.emails.send({
-      from: "Luxon Entertainment <onboarding@resend.dev>",
+      from: FROM_EMAIL,
       to: [payload.contractorEmail],
-      replyTo: "Luxon Entertainment <Luxon.entertainment@gmail.com>",
+      replyTo: REPLY_TO_EMAIL,
       subject: "You have been selected to work an event",
       html: buildEmailHtml(payload),
       text: buildTextEmail(payload),
