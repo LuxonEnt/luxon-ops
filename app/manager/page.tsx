@@ -1917,6 +1917,7 @@ function ManagerAssignmentCard({
       : ""
   );
   const [notes, setNotes] = useState(row.manager_notes || "");
+  const [positionText, setPositionText] = useState(row.position || "");
   const [clockIn, setClockIn] = useState(row.clock_in || "");
   const [lunchOut, setLunchOut] = useState(row.lunch_clock_out || "");
   const [lunchIn, setLunchIn] = useState(row.lunch_clock_in || "");
@@ -1930,7 +1931,7 @@ function ManagerAssignmentCard({
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="text-lg font-semibold">
-            Invoice Record #{row.id} · {row.position || "Assignment"}
+            Invoice Record #{row.id} · {positionText || "Assignment"}
           </div>
           <div className="text-sm text-zinc-400">
             {row.contractor?.name || "Contractor"} · {row.event?.name || "Event"}
@@ -1955,6 +1956,25 @@ function ManagerAssignmentCard({
             {money(Number(row.rate || 0))} / {row.rate_type || "day"}
           </div>
         </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
+        <Field
+          label="Assignment Text / Position"
+          value={positionText}
+          onChange={setPositionText}
+        />
+        <button
+          onClick={() =>
+            onUpdateAssignment(row, {
+              position: positionText.trim() || null,
+            })
+          }
+          className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+        >
+          <Save className="h-4 w-4" />
+          Save Text
+        </button>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-4">
