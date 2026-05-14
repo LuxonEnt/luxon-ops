@@ -23,6 +23,14 @@ import {
   Users,
 } from "lucide-react";
 
+const PORTAL_BACKGROUND_STYLE = {
+  backgroundImage:
+    "linear-gradient(rgba(5, 5, 5, 0.82), rgba(5, 5, 5, 0.92)), url('/luxon-dashboard-bg.png')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundAttachment: "fixed",
+} as React.CSSProperties;
+
 type EventItem = {
   id: number;
   name: string;
@@ -1049,7 +1057,7 @@ export default function ManagerPage() {
 
   if (status !== "allowed") {
     return (
-      <main className="min-h-screen bg-black p-8 text-white">
+      <main className="min-h-screen bg-black p-8 text-white" style={PORTAL_BACKGROUND_STYLE}>
         <h1 className="text-3xl font-bold">Manager Portal</h1>
         <p className="mt-4 text-zinc-400">{status}</p>
       </main>
@@ -1057,7 +1065,7 @@ export default function ManagerPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] text-white">
+    <main className="min-h-screen bg-[#050505] text-white" style={PORTAL_BACKGROUND_STYLE}>
       <div className="pointer-events-none fixed inset-0">
         <div className="absolute left-0 top-0 h-80 w-80 rounded-full bg-amber-500/10 blur-3xl" />
         <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-yellow-300/5 blur-3xl" />
