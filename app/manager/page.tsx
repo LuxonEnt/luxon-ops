@@ -273,6 +273,53 @@ async function geocodeAddress(address: string) {
   };
 }
 
+type AssignmentEmailPayload = {
+  contractorName?: string | null;
+  contractorEmail?: string | null;
+  eventName?: string | null;
+  eventStartDate?: string | null;
+  eventEndDate?: string | null;
+  venue?: string | null;
+  address?: string | null;
+  position?: string | null;
+  workDate?: string | null;
+  callTime?: string | null;
+  rate?: number | string | null;
+  rateType?: string | null;
+};
+
+async function sendAssignmentConfirmationEmail(payload: AssignmentEmailPayload) {
+  if (!payload.contractorEmail) {
+    return { ok: false, error: "Contractor email is missing." };
+  }
+
+  try {
+    const response = await fetch("/api/send-assignment-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: data?.error || "Email could not be sent.",
+      };
+    }
+
+    return { ok: true, error: null };
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: error?.message || "Email could not be sent.",
+    };
+  }
+}
+
 export default function ManagerPage() {
   const [activeTab, setActiveTab] = useState<TabName>("Overview");
   const [status, setStatus] = useState("Checking access...");
@@ -739,6 +786,28 @@ export default function ManagerPage() {
       return;
     }
 
+    const selectedContractor = contractors.find(
+      (contractor) => contractor.id === Number(assignmentForm.contractor_id),
+    );
+    const selectedEvent = events.find(
+      (event) => event.id === Number(assignmentForm.event_id),
+    );
+
+    const emailResult = await sendAssignmentConfirmationEmail({
+      contractorName: selectedContractor?.name || null,
+      contractorEmail: selectedContractor?.email || null,
+      eventName: selectedEvent?.name || null,
+      eventStartDate: selectedEvent?.start_date || null,
+      eventEndDate: selectedEvent?.end_date || null,
+      venue: selectedEvent?.venue || null,
+      address: selectedEvent?.address || null,
+      position: assignmentForm.position.trim(),
+      workDate: assignmentForm.work_date || null,
+      callTime: assignmentForm.call_time || null,
+      rate: Number(assignmentForm.rate || 0),
+      rateType: assignmentForm.rate_type || "day",
+    });
+
     setAssignmentForm({
       event_id: "",
       contractor_id: "",
@@ -749,7 +818,11 @@ export default function ManagerPage() {
       rate_type: "day",
     });
 
-    setMessage("Assignment created.");
+    setMessage(
+      emailResult.ok
+        ? "Assignment created. Email confirmation sent."
+        : `Assignment created, but email confirmation was not sent: ${emailResult.error}`,
+    );
     await loadAll();
   }
 
