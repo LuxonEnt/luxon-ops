@@ -12,6 +12,7 @@ import {
   Plus,
   RefreshCw,
   Sparkles,
+  Trash2,
   UserCheck,
   Users,
 } from "lucide-react";
@@ -88,6 +89,7 @@ function timeLabel(value?: string | null) {
   if (!value) return "--";
   const clean = String(value).slice(0, 5);
   const [h, m] = clean.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return value;
   return new Date(2026, 0, 1, h, m).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -172,14 +174,35 @@ export default function ManagerRequestsPage() {
       { data: responsesData, error: responsesError },
       { data: availabilityData, error: availabilityError },
     ] = await Promise.all([
-      supabase.from("events").select("*").order("start_date", { ascending: false }),
-      supabase.from("contractors").select("id,name,email,role").order("name", { ascending: true }),
-      supabase.from("crew_position_requests").select("*").order("created_at", { ascending: false }),
-      supabase.from("crew_request_responses").select("*").order("updated_at", { ascending: false }),
-      supabase.from("contractor_availability").select("*").order("created_at", { ascending: false }),
+      supabase
+        .from("events")
+        .select("*")
+        .order("start_date", { ascending: false }),
+      supabase
+        .from("contractors")
+        .select("id,name,email,role")
+        .order("name", { ascending: true }),
+      supabase
+        .from("crew_position_requests")
+        .select("*")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("crew_request_responses")
+        .select("*")
+        .order("updated_at", { ascending: false }),
+      supabase
+        .from("contractor_availability")
+        .select("*")
+        .order("created_at", { ascending: false }),
     ]);
 
-    if (eventsError || contractorsError || requestsError || responsesError || availabilityError) {
+    if (
+      eventsError ||
+      contractorsError ||
+      requestsError ||
+      responsesError ||
+      availabilityError
+    ) {
       setMessage(
         eventsError?.message ||
           contractorsError?.message ||
@@ -214,7 +237,11 @@ export default function ManagerRequestsPage() {
   }
 
   async function createRequest() {
-    if (!requestForm.event_id || !requestForm.title.trim() || !requestForm.position.trim()) {
+    if (
+      !requestForm.event_id ||
+      !requestForm.title.trim() ||
+      !requestForm.position.trim()
+    ) {
       setMessage("Event, title, and position are required.");
       return;
     }
@@ -341,6 +368,37 @@ export default function ManagerRequestsPage() {
     }
 
     setMessage("Responder confirmed and request marked filled.");
+    await loadAll();
+  }
+
+  async function deleteRequest(request: CrewRequest) {
+    const ok = window.confirm(
+      `Delete this filled request?\n\n${request.title}\n${request.position}\n\nThis removes the posting and all responses from the request list. It will not delete any assignment already created.`
+    );
+
+    if (!ok) return;
+
+    const deleteResponses = await supabase
+      .from("crew_request_responses")
+      .delete()
+      .eq("request_id", request.id);
+
+    if (deleteResponses.error) {
+      setMessage(deleteResponses.error.message);
+      return;
+    }
+
+    const deleteRequestResult = await supabase
+      .from("crew_position_requests")
+      .delete()
+      .eq("id", request.id);
+
+    if (deleteRequestResult.error) {
+      setMessage(deleteRequestResult.error.message);
+      return;
+    }
+
+    setMessage("Filled request deleted.");
     await loadAll();
   }
 
@@ -492,47 +550,66 @@ export default function ManagerRequestsPage() {
                   <SelectField
                     label="Event"
                     value={requestForm.event_id}
-                    onChange={(v) => setRequestForm({ ...requestForm, event_id: v })}
-                    options={events.map((e) => ({ value: String(e.id), label: e.name }))}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, event_id: v })
+                    }
+                    options={events.map((e) => ({
+                      value: String(e.id),
+                      label: e.name,
+                    }))}
                   />
                   <Field
                     label="Request Title"
                     value={requestForm.title}
-                    onChange={(v) => setRequestForm({ ...requestForm, title: v })}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, title: v })
+                    }
                   />
                   <Field
                     label="Position"
                     value={requestForm.position}
-                    onChange={(v) => setRequestForm({ ...requestForm, position: v })}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, position: v })
+                    }
                   />
                   <Field
                     label="Slots"
                     type="number"
                     value={requestForm.slots}
-                    onChange={(v) => setRequestForm({ ...requestForm, slots: v })}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, slots: v })
+                    }
                   />
                   <Field
                     label="Work Date"
                     type="date"
                     value={requestForm.work_date}
-                    onChange={(v) => setRequestForm({ ...requestForm, work_date: v })}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, work_date: v })
+                    }
                   />
                   <Field
                     label="Call Time"
                     type="time"
                     value={requestForm.call_time}
-                    onChange={(v) => setRequestForm({ ...requestForm, call_time: v })}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, call_time: v })
+                    }
                   />
                   <Field
                     label="Rate"
                     type="number"
                     value={requestForm.rate}
-                    onChange={(v) => setRequestForm({ ...requestForm, rate: v })}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, rate: v })
+                    }
                   />
                   <SelectField
                     label="Rate Type"
                     value={requestForm.rate_type}
-                    onChange={(v) => setRequestForm({ ...requestForm, rate_type: v })}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, rate_type: v })
+                    }
                     options={[
                       { value: "day", label: "day" },
                       { value: "hour", label: "hour" },
@@ -541,7 +618,9 @@ export default function ManagerRequestsPage() {
                   <TextAreaField
                     label="Notes"
                     value={requestForm.notes}
-                    onChange={(v) => setRequestForm({ ...requestForm, notes: v })}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, notes: v })
+                    }
                   />
                 </div>
                 <button
@@ -562,42 +641,77 @@ export default function ManagerRequestsPage() {
                   <SelectField
                     label="Event"
                     value={quickAssignForm.event_id}
-                    onChange={(v) => setQuickAssignForm({ ...quickAssignForm, event_id: v })}
-                    options={events.map((e) => ({ value: String(e.id), label: e.name }))}
+                    onChange={(v) =>
+                      setQuickAssignForm({ ...quickAssignForm, event_id: v })
+                    }
+                    options={events.map((e) => ({
+                      value: String(e.id),
+                      label: e.name,
+                    }))}
                   />
                   <SelectField
                     label="Contractor"
                     value={quickAssignForm.contractor_id}
-                    onChange={(v) => setQuickAssignForm({ ...quickAssignForm, contractor_id: v })}
-                    options={contractors.map((c) => ({ value: String(c.id), label: c.name }))}
+                    onChange={(v) =>
+                      setQuickAssignForm({
+                        ...quickAssignForm,
+                        contractor_id: v,
+                      })
+                    }
+                    options={contractors.map((c) => ({
+                      value: String(c.id),
+                      label: c.name,
+                    }))}
                   />
                   <Field
                     label="Position"
                     value={quickAssignForm.position}
-                    onChange={(v) => setQuickAssignForm({ ...quickAssignForm, position: v })}
+                    onChange={(v) =>
+                      setQuickAssignForm({
+                        ...quickAssignForm,
+                        position: v,
+                      })
+                    }
                   />
                   <Field
                     label="Work Date"
                     type="date"
                     value={quickAssignForm.work_date}
-                    onChange={(v) => setQuickAssignForm({ ...quickAssignForm, work_date: v })}
+                    onChange={(v) =>
+                      setQuickAssignForm({
+                        ...quickAssignForm,
+                        work_date: v,
+                      })
+                    }
                   />
                   <Field
                     label="Call Time"
                     type="time"
                     value={quickAssignForm.call_time}
-                    onChange={(v) => setQuickAssignForm({ ...quickAssignForm, call_time: v })}
+                    onChange={(v) =>
+                      setQuickAssignForm({
+                        ...quickAssignForm,
+                        call_time: v,
+                      })
+                    }
                   />
                   <Field
                     label="Rate"
                     type="number"
                     value={quickAssignForm.rate}
-                    onChange={(v) => setQuickAssignForm({ ...quickAssignForm, rate: v })}
+                    onChange={(v) =>
+                      setQuickAssignForm({ ...quickAssignForm, rate: v })
+                    }
                   />
                   <SelectField
                     label="Rate Type"
                     value={quickAssignForm.rate_type}
-                    onChange={(v) => setQuickAssignForm({ ...quickAssignForm, rate_type: v })}
+                    onChange={(v) =>
+                      setQuickAssignForm({
+                        ...quickAssignForm,
+                        rate_type: v,
+                      })
+                    }
                     options={[
                       { value: "day", label: "day" },
                       { value: "hour", label: "hour" },
@@ -645,9 +759,12 @@ export default function ManagerRequestsPage() {
                       >
                         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                           <div>
-                            <div className="text-xl font-semibold">{request.title}</div>
+                            <div className="text-xl font-semibold">
+                              {request.title}
+                            </div>
                             <div className="text-sm text-zinc-400">
-                              {request.position} · {eventMap[request.event_id]?.name || "Event"}
+                              {request.position} ·{" "}
+                              {eventMap[request.event_id]?.name || "Event"}
                             </div>
                             <div className="mt-1 text-xs text-zinc-500">
                               {eventMap[request.event_id]?.venue || ""}
@@ -658,7 +775,8 @@ export default function ManagerRequestsPage() {
                           </div>
                           <div className="text-right">
                             <div className="text-lg font-semibold text-amber-300">
-                              {money(Number(request.rate || 0))} / {request.rate_type || "day"}
+                              {money(Number(request.rate || 0))} /{" "}
+                              {request.rate_type || "day"}
                             </div>
                             <div className="text-xs text-zinc-500">
                               {request.filled_slots} of {request.slots} filled
@@ -698,7 +816,8 @@ export default function ManagerRequestsPage() {
                         <div className="space-y-3">
                           {availableResponses.length ? (
                             availableResponses.map((response) => {
-                              const contractor = contractorMap[response.contractor_id];
+                              const contractor =
+                                contractorMap[response.contractor_id];
                               const isAlreadyConfirmed =
                                 request.status === "Filled" ||
                                 response.response_status === "confirmed";
@@ -710,11 +829,14 @@ export default function ManagerRequestsPage() {
                                 >
                                   <div>
                                     <div className="font-medium">
-                                      {contractor?.name || `Contractor #${response.contractor_id}`}
+                                      {contractor?.name ||
+                                        `Contractor #${response.contractor_id}`}
                                     </div>
                                     <div className="text-sm text-zinc-400">
                                       {contractor?.role || ""}
-                                      {contractor?.email ? ` · ${contractor.email}` : ""}
+                                      {contractor?.email
+                                        ? ` · ${contractor.email}`
+                                        : ""}
                                     </div>
                                     <div className="text-xs text-zinc-500">
                                       Status: {response.response_status}
@@ -728,8 +850,12 @@ export default function ManagerRequestsPage() {
                                     </span>
                                   ) : (
                                     <button
-                                      onClick={() => confirmResponder(request, response)}
-                                      disabled={request.filled_slots >= request.slots}
+                                      onClick={() =>
+                                        confirmResponder(request, response)
+                                      }
+                                      disabled={
+                                        request.filled_slots >= request.slots
+                                      }
                                       className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black disabled:opacity-50"
                                     >
                                       Confirm for Position
@@ -764,20 +890,44 @@ export default function ManagerRequestsPage() {
                       key={request.id}
                       className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4"
                     >
-                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <div>
-                          <div className="font-semibold text-white">{request.title}</div>
+                          <div className="font-semibold text-white">
+                            {request.title}
+                          </div>
                           <div className="text-sm text-zinc-300">
-                            {request.position} · {eventMap[request.event_id]?.name || "Event"}
+                            {request.position} ·{" "}
+                            {eventMap[request.event_id]?.name || "Event"}
                           </div>
                           <div className="text-xs text-zinc-400">
-                            {dateLabel(request.work_date)} · {timeLabel(request.call_time)}
+                            {dateLabel(request.work_date)} ·{" "}
+                            {timeLabel(request.call_time)}
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-400">
+                            Filled {request.filled_slots} of {request.slots}
+                            {request.selected_contractor_id
+                              ? ` · Selected: ${
+                                  contractorMap[request.selected_contractor_id]
+                                    ?.name ||
+                                  `Contractor #${request.selected_contractor_id}`
+                                }`
+                              : ""}
                           </div>
                         </div>
 
-                        <span className="inline-flex items-center rounded-2xl border border-emerald-500/30 bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-300">
-                          Filled
-                        </span>
+                        <div className="flex flex-wrap gap-2 md:justify-end">
+                          <span className="inline-flex items-center rounded-2xl border border-emerald-500/30 bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-300">
+                            Filled
+                          </span>
+
+                          <button
+                            onClick={() => deleteRequest(request)}
+                            className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))
@@ -806,7 +956,8 @@ export default function ManagerRequestsPage() {
                             `Contractor #${item.contractor_id}`}
                         </div>
                         <div className="text-sm text-zinc-400">
-                          {dateLabel(item.start_date)} - {dateLabel(item.end_date)}
+                          {dateLabel(item.start_date)} -{" "}
+                          {dateLabel(item.end_date)}
                         </div>
                         <div className="text-xs text-zinc-500">
                           {item.availability_status}
@@ -834,11 +985,7 @@ export default function ManagerRequestsPage() {
   );
 }
 
-function GlassCard({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function GlassCard({ children }: { children: React.ReactNode }) {
   return (
     <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl">
       {children}
@@ -880,7 +1027,9 @@ function SectionTitle({
 }) {
   return (
     <div className="flex items-start gap-3">
-      <div className="rounded-2xl bg-amber-400/10 p-3 text-amber-300">{icon}</div>
+      <div className="rounded-2xl bg-amber-400/10 p-3 text-amber-300">
+        {icon}
+      </div>
       <div>
         <h2 className="text-2xl font-semibold">{title}</h2>
         <p className="text-sm text-zinc-400">{subtitle}</p>
