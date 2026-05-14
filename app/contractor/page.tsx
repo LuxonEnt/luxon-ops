@@ -56,6 +56,8 @@ type Assignment = {
   clock_out?: string | null;
   clock_in_location?: string | null;
   clock_out_location?: string | null;
+  lunch_clock_out?: string | null;
+  lunch_clock_in?: string | null;
   break_hours?: number | null;
   rate?: number | null;
   rate_type?: string | null;
@@ -122,21 +124,40 @@ function currentTimeForDb() {
   return `${hh}:${mm}`;
 }
 
+function timeToMinutes(value?: string | null) {
+  if (!value) return null;
+  const [h, m] = String(value).slice(0, 5).split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
 function hoursBetween(
   start?: string | null,
   end?: string | null,
-  breakHours = 0
+  lunchOut?: string | null,
+  lunchIn?: string | null
 ) {
   if (!start || !end) return 0;
-  const [sh, sm] = String(start).slice(0, 5).split(":").map(Number);
-  const [eh, em] = String(end).slice(0, 5).split(":").map(Number);
-  if ([sh, sm, eh, em].some(Number.isNaN)) return 0;
 
-  let startMins = sh * 60 + sm;
-  let endMins = eh * 60 + em;
+  const startMins = timeToMinutes(start);
+  let endMins = timeToMinutes(end);
+
+  if (startMins === null || endMins === null) return 0;
   if (endMins < startMins) endMins += 24 * 60;
 
-  return Math.max(0, (endMins - startMins) / 60 - Number(breakHours || 0));
+  let totalMins = endMins - startMins;
+
+  if (lunchOut && lunchIn) {
+    const lunchOutMins = timeToMinutes(lunchOut);
+    let lunchInMins = timeToMinutes(lunchIn);
+
+    if (lunchOutMins !== null && lunchInMins !== null) {
+      if (lunchInMins < lunchOutMins) lunchInMins += 24 * 60;
+      totalMins -= Math.max(0, lunchInMins - lunchOutMins);
+    }
+  }
+
+  return Math.max(0, totalMins / 60);
 }
 
 function fileSizeLabel(size?: number) {
@@ -376,6 +397,10 @@ function buildInvoiceHtml(
           <th>Date</th>
           <th>Position</th>
           <th>Call Time</th>
+          <th>Clock In</th>
+          <th>Lunch Out</th>
+          <th>Lunch In</th>
+          <th>Clock Out</th>
           <th>Hours</th>
           <th>Rate</th>
           <th>Amount</th>
@@ -386,6 +411,10 @@ function buildInvoiceHtml(
           <td>${escapeHtml(dateLabel(assignment.work_date))}</td>
           <td>${escapeHtml(assignment.position || "Assignment")}</td>
           <td>${escapeHtml(timeLabel(assignment.call_time))}</td>
+          <td>${escapeHtml(timeLabel(assignment.clock_in))}</td>
+          <td>${escapeHtml(timeLabel(assignment.lunch_clock_out))}</td>
+          <td>${escapeHtml(timeLabel(assignment.lunch_clock_in))}</td>
+          <td>${escapeHtml(timeLabel(assignment.clock_out))}</td>
           <td>${escapeHtml(assignment.hours.toFixed(2))}</td>
           <td>${escapeHtml(
             `${money(Number(assignment.rate || 0))} / ${assignment.rate_type || "day"}`
@@ -409,7 +438,7 @@ function buildInvoiceHtml(
 
       <div class="summary">
         <div class="summary-row">
-          <span>Hours</span>
+          <span>Hours after lunch</span>
           <span>${escapeHtml(assignment.hours.toFixed(2))}</span>
         </div>
         <div class="summary-row">
@@ -449,6 +478,9 @@ export default function ContractorPage() {
   const [selectedInvoiceAssignmentId, setSelectedInvoiceAssignmentId] =
     useState<string>("");
   const [selectedInvoiceView, setSelectedInvoiceView] = useState(false);
+  const [lunchTimes, setLunchTimes] = useState<
+    Record<number, { lunchOut: string; lunchIn: string }>
+  >({});
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -519,6 +551,20 @@ export default function ContractorPage() {
       emergency_contact_name: contractorRow.emergency_contact_name || "",
       emergency_contact_phone: contractorRow.emergency_contact_phone || "",
     });
+
+    const existingLunchTimes: Record<
+      number,
+      { lunchOut: string; lunchIn: string }
+    > = {};
+
+    (assignmentRows || []).forEach((row) => {
+      existingLunchTimes[row.id] = {
+        lunchOut: row.lunch_clock_out || "",
+        lunchIn: row.lunch_clock_in || "",
+      };
+    });
+
+    setLunchTimes(existingLunchTimes);
 
     await loadDocumentsForContractor(contractorRow.id);
 
@@ -599,7 +645,7 @@ export default function ContractorPage() {
     const userLon = position.coords.longitude;
     const accuracyFeet = position.coords.accuracy * 3.28084;
 
-    const allowedRadius = Number(event.geofence_radius_feet || 500);
+    const allowedRadius = Number(event.geofence_radius_feet || 750);
     const distance = distanceFeet(userLat, userLon, event.latitude, event.longitude);
 
     if (distance > allowedRadius) {
@@ -636,11 +682,12 @@ export default function ContractorPage() {
 
     try {
       const geo = await validateGeofence(row.event);
+      const clockInTime = currentTimeForDb();
 
       const { error } = await supabase
         .from("assignments")
         .update({
-          clock_in: currentTimeForDb(),
+          clock_in: clockInTime,
           clock_in_location: geo.locationString,
         })
         .eq("id", row.id)
@@ -651,9 +698,22 @@ export default function ContractorPage() {
         return;
       }
 
+      setAssignments((prev) =>
+        prev.map((assignment) =>
+          assignment.id === row.id
+            ? {
+                ...assignment,
+                clock_in: clockInTime,
+                clock_in_location: geo.locationString,
+              }
+            : assignment
+        )
+      );
+
       setMessage(
         `Clocked in. You were ${Math.round(geo.distance)} ft from the venue.`
       );
+
       await refreshPortal();
     } catch (error: any) {
       setMessage(error?.message || "Could not clock in.");
@@ -673,16 +733,42 @@ export default function ContractorPage() {
       return;
     }
 
+    const lunchOut = lunchTimes[row.id]?.lunchOut || "";
+    const lunchIn = lunchTimes[row.id]?.lunchIn || "";
+
+    if (!lunchOut || !lunchIn) {
+      setMessage(
+        "Lunch clock-out and lunch clock-in are required before clocking out."
+      );
+      return;
+    }
+
+    const lunchOutMins = timeToMinutes(lunchOut);
+    const lunchInMins = timeToMinutes(lunchIn);
+
+    if (lunchOutMins === null || lunchInMins === null) {
+      setMessage("Lunch times are invalid.");
+      return;
+    }
+
+    if (lunchInMins <= lunchOutMins) {
+      setMessage("Lunch clock-in must be after lunch clock-out.");
+      return;
+    }
+
     setClockingId(row.id);
     setMessage("Checking your location...");
 
     try {
       const geo = await validateGeofence(row.event);
+      const clockOutTime = currentTimeForDb();
 
       const { error } = await supabase
         .from("assignments")
         .update({
-          clock_out: currentTimeForDb(),
+          lunch_clock_out: lunchOut,
+          lunch_clock_in: lunchIn,
+          clock_out: clockOutTime,
           clock_out_location: geo.locationString,
         })
         .eq("id", row.id)
@@ -693,9 +779,24 @@ export default function ContractorPage() {
         return;
       }
 
+      setAssignments((prev) =>
+        prev.map((assignment) =>
+          assignment.id === row.id
+            ? {
+                ...assignment,
+                lunch_clock_out: lunchOut,
+                lunch_clock_in: lunchIn,
+                clock_out: clockOutTime,
+                clock_out_location: geo.locationString,
+              }
+            : assignment
+        )
+      );
+
       setMessage(
         `Clocked out. You were ${Math.round(geo.distance)} ft from the venue.`
       );
+
       await refreshPortal();
     } catch (error: any) {
       setMessage(error?.message || "Could not clock out.");
@@ -860,7 +961,13 @@ export default function ContractorPage() {
 
   const assignmentSummaries = useMemo(() => {
     return assignments.map((row) => {
-      const hours = hoursBetween(row.clock_in, row.clock_out, row.break_hours || 0);
+      const hours = hoursBetween(
+        row.clock_in,
+        row.clock_out,
+        row.lunch_clock_out,
+        row.lunch_clock_in
+      );
+
       const total =
         row.rate_type === "hour"
           ? hours * Number(row.rate || 0)
@@ -1008,9 +1115,21 @@ export default function ContractorPage() {
 
             {!isEditingProfile ? (
               <div className="mt-5 grid gap-3 md:grid-cols-2">
-                <MiniInfo icon={<User className="h-4 w-4" />} label="Name" value={contractor?.name || "--"} />
-                <MiniInfo icon={<Briefcase className="h-4 w-4" />} label="Role" value={contractor?.role || "--"} />
-                <MiniInfo icon={<Building2 className="h-4 w-4" />} label="Company" value={contractor?.company || "--"} />
+                <MiniInfo
+                  icon={<User className="h-4 w-4" />}
+                  label="Name"
+                  value={contractor?.name || "--"}
+                />
+                <MiniInfo
+                  icon={<Briefcase className="h-4 w-4" />}
+                  label="Role"
+                  value={contractor?.role || "--"}
+                />
+                <MiniInfo
+                  icon={<Building2 className="h-4 w-4" />}
+                  label="Company"
+                  value={contractor?.company || "--"}
+                />
                 <MiniInfo
                   icon={<MapPin className="h-4 w-4" />}
                   label="City / State"
@@ -1018,31 +1137,76 @@ export default function ContractorPage() {
                     contractor?.state ? `, ${contractor.state}` : ""
                   }`}
                 />
-                <MiniInfo icon={<Phone className="h-4 w-4" />} label="Phone" value={contractor?.phone || "--"} />
-                <MiniInfo icon={<User className="h-4 w-4" />} label="Emergency Contact" value={contractor?.emergency_contact_name || "--"} />
-                <MiniInfo icon={<AlertCircle className="h-4 w-4" />} label="Emergency Phone" value={contractor?.emergency_contact_phone || "--"} />
-                <MiniInfo icon={<FileText className="h-4 w-4" />} label="Email" value={contractor?.email || "--"} />
+                <MiniInfo
+                  icon={<Phone className="h-4 w-4" />}
+                  label="Phone"
+                  value={contractor?.phone || "--"}
+                />
+                <MiniInfo
+                  icon={<User className="h-4 w-4" />}
+                  label="Emergency Contact"
+                  value={contractor?.emergency_contact_name || "--"}
+                />
+                <MiniInfo
+                  icon={<AlertCircle className="h-4 w-4" />}
+                  label="Emergency Phone"
+                  value={contractor?.emergency_contact_phone || "--"}
+                />
+                <MiniInfo
+                  icon={<FileText className="h-4 w-4" />}
+                  label="Email"
+                  value={contractor?.email || "--"}
+                />
               </div>
             ) : (
               <div className="mt-5 grid gap-3 md:grid-cols-2">
-                <Field label="Name" value={profileForm.name} onChange={(v) => setProfileForm({ ...profileForm, name: v })} />
-                <ReadOnlyField label="Role" value={contractor?.role || "Contractor"} />
-                <Field label="Company" value={profileForm.company} onChange={(v) => setProfileForm({ ...profileForm, company: v })} />
-                <Field label="Phone" value={profileForm.phone} onChange={(v) => setProfileForm({ ...profileForm, phone: v })} />
-                <Field label="City" value={profileForm.city} onChange={(v) => setProfileForm({ ...profileForm, city: v })} />
-                <Field label="State" value={profileForm.state} onChange={(v) => setProfileForm({ ...profileForm, state: v })} />
+                <Field
+                  label="Name"
+                  value={profileForm.name}
+                  onChange={(v) => setProfileForm({ ...profileForm, name: v })}
+                />
+                <ReadOnlyField
+                  label="Role"
+                  value={contractor?.role || "Contractor"}
+                />
+                <Field
+                  label="Company"
+                  value={profileForm.company}
+                  onChange={(v) => setProfileForm({ ...profileForm, company: v })}
+                />
+                <Field
+                  label="Phone"
+                  value={profileForm.phone}
+                  onChange={(v) => setProfileForm({ ...profileForm, phone: v })}
+                />
+                <Field
+                  label="City"
+                  value={profileForm.city}
+                  onChange={(v) => setProfileForm({ ...profileForm, city: v })}
+                />
+                <Field
+                  label="State"
+                  value={profileForm.state}
+                  onChange={(v) => setProfileForm({ ...profileForm, state: v })}
+                />
                 <Field
                   label="Emergency Contact"
                   value={profileForm.emergency_contact_name}
                   onChange={(v) =>
-                    setProfileForm({ ...profileForm, emergency_contact_name: v })
+                    setProfileForm({
+                      ...profileForm,
+                      emergency_contact_name: v,
+                    })
                   }
                 />
                 <Field
                   label="Emergency Phone"
                   value={profileForm.emergency_contact_phone}
                   onChange={(v) =>
-                    setProfileForm({ ...profileForm, emergency_contact_phone: v })
+                    setProfileForm({
+                      ...profileForm,
+                      emergency_contact_phone: v,
+                    })
                   }
                 />
               </div>
@@ -1136,16 +1300,30 @@ export default function ContractorPage() {
                       </div>
 
                       <div className="grid gap-3 md:grid-cols-2">
-                        <MiniInfo icon={<CalendarDays className="h-4 w-4" />} label="Work Date" value={dateLabel(selectedInvoiceAssignment.work_date)} />
-                        <MiniInfo icon={<Clock3 className="h-4 w-4" />} label="Call Time" value={timeLabel(selectedInvoiceAssignment.call_time)} />
+                        <MiniInfo
+                          icon={<CalendarDays className="h-4 w-4" />}
+                          label="Work Date"
+                          value={dateLabel(selectedInvoiceAssignment.work_date)}
+                        />
+                        <MiniInfo
+                          icon={<Clock3 className="h-4 w-4" />}
+                          label="Call Time"
+                          value={timeLabel(selectedInvoiceAssignment.call_time)}
+                        />
                         <MiniInfo
                           icon={<DollarSign className="h-4 w-4" />}
                           label="Rate"
                           value={`${money(
                             Number(selectedInvoiceAssignment.rate || 0)
-                          )} / ${selectedInvoiceAssignment.rate_type || "day"}`}
+                          )} / ${
+                            selectedInvoiceAssignment.rate_type || "day"
+                          }`}
                         />
-                        <MiniInfo icon={<Receipt className="h-4 w-4" />} label="Calculated Total" value={money(selectedInvoiceAssignment.total)} />
+                        <MiniInfo
+                          icon={<Receipt className="h-4 w-4" />}
+                          label="Calculated Total"
+                          value={money(selectedInvoiceAssignment.total)}
+                        />
                       </div>
                     </div>
                   ) : null}
@@ -1242,7 +1420,7 @@ export default function ContractorPage() {
                   const event = row.event;
                   const directionsUrl = buildDirectionsUrl(event);
                   const geofenceReady = !!event?.latitude && !!event?.longitude;
-                  const radius = Number(event?.geofence_radius_feet || 500);
+                  const radius = Number(event?.geofence_radius_feet || 750);
 
                   return (
                     <div
@@ -1266,13 +1444,21 @@ export default function ContractorPage() {
                             <StatusPill active={!!row.confirmed} text="Confirmed" />
                             <StatusPill active={!!row.approved} text="Approved" />
                             <StatusPill active={!!row.paid} text="Paid" />
-                            <StatusPill active={geofenceReady} text={geofenceReady ? `GPS Ready ${radius} ft` : "GPS Not Set"} />
+                            <StatusPill
+                              active={geofenceReady}
+                              text={
+                                geofenceReady
+                                  ? `GPS Ready ${radius} ft`
+                                  : "GPS Not Set"
+                              }
+                            />
                           </div>
                         </div>
 
                         <div className="text-left md:text-right">
                           <div className="font-semibold text-amber-300">
-                            {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+                            {money(Number(row.rate || 0))} /{" "}
+                            {row.rate_type || "day"}
                           </div>
                           <div className="text-xs text-zinc-500">
                             {dateLabel(row.work_date)} · {timeLabel(row.call_time)}
@@ -1280,12 +1466,92 @@ export default function ContractorPage() {
                         </div>
                       </div>
 
-                      <div className="mt-4 grid gap-3 md:grid-cols-4">
-                        <MiniInfo icon={<Clock3 className="h-4 w-4" />} label="Clock In" value={timeLabel(row.clock_in)} />
-                        <MiniInfo icon={<Clock3 className="h-4 w-4" />} label="Clock Out" value={timeLabel(row.clock_out)} />
-                        <MiniInfo icon={<Clock3 className="h-4 w-4" />} label="Tracked Hours" value={row.hours.toFixed(2)} />
-                        <MiniInfo icon={<MapPin className="h-4 w-4" />} label="GPS Radius" value={geofenceReady ? `${radius} ft` : "Not Set"} />
+                      <div className="mt-4 grid gap-3 md:grid-cols-6">
+                        <MiniInfo
+                          icon={<Clock3 className="h-4 w-4" />}
+                          label="Clock In"
+                          value={timeLabel(row.clock_in)}
+                        />
+                        <MiniInfo
+                          icon={<Clock3 className="h-4 w-4" />}
+                          label="Lunch Out"
+                          value={timeLabel(row.lunch_clock_out)}
+                        />
+                        <MiniInfo
+                          icon={<Clock3 className="h-4 w-4" />}
+                          label="Lunch In"
+                          value={timeLabel(row.lunch_clock_in)}
+                        />
+                        <MiniInfo
+                          icon={<Clock3 className="h-4 w-4" />}
+                          label="Clock Out"
+                          value={timeLabel(row.clock_out)}
+                        />
+                        <MiniInfo
+                          icon={<Clock3 className="h-4 w-4" />}
+                          label="Tracked Hours"
+                          value={row.hours.toFixed(2)}
+                        />
+                        <MiniInfo
+                          icon={<MapPin className="h-4 w-4" />}
+                          label="GPS Radius"
+                          value={geofenceReady ? `${radius} ft` : "Not Set"}
+                        />
                       </div>
+
+                      {row.clock_in && !row.clock_out ? (
+                        <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4">
+                          <div className="mb-3 text-sm font-semibold text-amber-100">
+                            Lunch Times Required Before Clock Out
+                          </div>
+
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <Field
+                              label="Lunch Clock Out"
+                              type="time"
+                              value={
+                                lunchTimes[row.id]?.lunchOut ||
+                                row.lunch_clock_out ||
+                                ""
+                              }
+                              onChange={(value) =>
+                                setLunchTimes((prev) => ({
+                                  ...prev,
+                                  [row.id]: {
+                                    lunchOut: value,
+                                    lunchIn:
+                                      prev[row.id]?.lunchIn ||
+                                      row.lunch_clock_in ||
+                                      "",
+                                  },
+                                }))
+                              }
+                            />
+
+                            <Field
+                              label="Lunch Clock In"
+                              type="time"
+                              value={
+                                lunchTimes[row.id]?.lunchIn ||
+                                row.lunch_clock_in ||
+                                ""
+                              }
+                              onChange={(value) =>
+                                setLunchTimes((prev) => ({
+                                  ...prev,
+                                  [row.id]: {
+                                    lunchOut:
+                                      prev[row.id]?.lunchOut ||
+                                      row.lunch_clock_out ||
+                                      "",
+                                    lunchIn: value,
+                                  },
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+                      ) : null}
 
                       <div className="mt-4 flex flex-wrap gap-3">
                         <a
@@ -1305,7 +1571,9 @@ export default function ContractorPage() {
                             className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
                           >
                             <Clock3 className="h-4 w-4" />
-                            {clockingId === row.id ? "Checking GPS..." : "Clock In"}
+                            {clockingId === row.id
+                              ? "Checking GPS..."
+                              : "Clock In"}
                           </button>
                         ) : null}
 
@@ -1316,7 +1584,9 @@ export default function ContractorPage() {
                             className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
                           >
                             <Clock3 className="h-4 w-4" />
-                            {clockingId === row.id ? "Checking GPS..." : "Clock Out"}
+                            {clockingId === row.id
+                              ? "Checking GPS..."
+                              : "Clock Out"}
                           </button>
                         ) : null}
 
@@ -1416,39 +1686,59 @@ export default function ContractorPage() {
                 </div>
               </div>
 
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-300 bg-slate-100">
-                    <th className="p-3">Date</th>
-                    <th className="p-3">Position</th>
-                    <th className="p-3">Call Time</th>
-                    <th className="p-3">Hours</th>
-                    <th className="p-3">Rate</th>
-                    <th className="p-3 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-b border-slate-200">
-                    <td className="p-3">{dateLabel(selectedInvoiceAssignment.work_date)}</td>
-                    <td className="p-3">
-                      {selectedInvoiceAssignment.position || "Assignment"}
-                    </td>
-                    <td className="p-3">
-                      {timeLabel(selectedInvoiceAssignment.call_time)}
-                    </td>
-                    <td className="p-3">
-                      {selectedInvoiceAssignment.hours.toFixed(2)}
-                    </td>
-                    <td className="p-3">
-                      {money(Number(selectedInvoiceAssignment.rate || 0))} /{" "}
-                      {selectedInvoiceAssignment.rate_type || "day"}
-                    </td>
-                    <td className="p-3 text-right font-semibold">
-                      {money(selectedInvoiceAssignment.total)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-300 bg-slate-100">
+                      <th className="p-3">Date</th>
+                      <th className="p-3">Position</th>
+                      <th className="p-3">Call Time</th>
+                      <th className="p-3">Clock In</th>
+                      <th className="p-3">Lunch Out</th>
+                      <th className="p-3">Lunch In</th>
+                      <th className="p-3">Clock Out</th>
+                      <th className="p-3">Hours</th>
+                      <th className="p-3">Rate</th>
+                      <th className="p-3 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-slate-200">
+                      <td className="p-3">
+                        {dateLabel(selectedInvoiceAssignment.work_date)}
+                      </td>
+                      <td className="p-3">
+                        {selectedInvoiceAssignment.position || "Assignment"}
+                      </td>
+                      <td className="p-3">
+                        {timeLabel(selectedInvoiceAssignment.call_time)}
+                      </td>
+                      <td className="p-3">
+                        {timeLabel(selectedInvoiceAssignment.clock_in)}
+                      </td>
+                      <td className="p-3">
+                        {timeLabel(selectedInvoiceAssignment.lunch_clock_out)}
+                      </td>
+                      <td className="p-3">
+                        {timeLabel(selectedInvoiceAssignment.lunch_clock_in)}
+                      </td>
+                      <td className="p-3">
+                        {timeLabel(selectedInvoiceAssignment.clock_out)}
+                      </td>
+                      <td className="p-3">
+                        {selectedInvoiceAssignment.hours.toFixed(2)}
+                      </td>
+                      <td className="p-3">
+                        {money(Number(selectedInvoiceAssignment.rate || 0))} /{" "}
+                        {selectedInvoiceAssignment.rate_type || "day"}
+                      </td>
+                      <td className="p-3 text-right font-semibold">
+                        {money(selectedInvoiceAssignment.total)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 p-4">
@@ -1456,7 +1746,8 @@ export default function ContractorPage() {
                     Status
                   </div>
                   <div className="mt-2 text-sm">
-                    Confirmed: {selectedInvoiceAssignment.confirmed ? "Yes" : "No"}
+                    Confirmed:{" "}
+                    {selectedInvoiceAssignment.confirmed ? "Yes" : "No"}
                   </div>
                   <div className="text-sm">
                     Approved: {selectedInvoiceAssignment.approved ? "Yes" : "No"}
@@ -1468,7 +1759,7 @@ export default function ContractorPage() {
 
                 <div className="rounded-2xl bg-slate-100 p-5">
                   <div className="mb-2 flex justify-between">
-                    <span>Hours</span>
+                    <span>Hours after lunch</span>
                     <span>{selectedInvoiceAssignment.hours.toFixed(2)}</span>
                   </div>
                   <div className="mb-2 flex justify-between">
@@ -1571,10 +1862,12 @@ function Field({
   label,
   value,
   onChange,
+  type = "text",
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  type?: string;
 }) {
   return (
     <label className="block">
@@ -1582,6 +1875,7 @@ function Field({
         {label}
       </span>
       <input
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none focus:border-amber-400/40"
