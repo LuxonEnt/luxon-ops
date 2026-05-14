@@ -13,6 +13,7 @@ import {
   MapPin,
   Plus,
   RefreshCw,
+  Save,
   Search,
   Sparkles,
   Trash2,
@@ -57,12 +58,25 @@ type Assignment = {
   call_time?: string | null;
   clock_in?: string | null;
   clock_out?: string | null;
+  lunch_clock_out?: string | null;
+  lunch_clock_in?: string | null;
   break_hours?: number | null;
   rate?: number | null;
   rate_type?: string | null;
   confirmed?: boolean | null;
   approved?: boolean | null;
   paid?: boolean | null;
+  manager_approved_hours?: number | null;
+  manager_notes?: string | null;
+  hours_approved?: boolean | null;
+};
+
+type AssignmentRow = Assignment & {
+  trackedHours: number;
+  billedHours: number;
+  total: number;
+  event?: EventItem;
+  contractor?: Contractor;
 };
 
 type AvailabilityItem = {
@@ -132,21 +146,40 @@ function timeLabel(value?: string | null) {
   });
 }
 
+function timeToMinutes(value?: string | null) {
+  if (!value) return null;
+  const [h, m] = String(value).slice(0, 5).split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
 function hoursBetween(
   start?: string | null,
   end?: string | null,
-  breakHours = 0
+  lunchOut?: string | null,
+  lunchIn?: string | null
 ) {
   if (!start || !end) return 0;
-  const [sh, sm] = String(start).slice(0, 5).split(":").map(Number);
-  const [eh, em] = String(end).slice(0, 5).split(":").map(Number);
-  if ([sh, sm, eh, em].some(Number.isNaN)) return 0;
 
-  let startMins = sh * 60 + sm;
-  let endMins = eh * 60 + em;
+  const startMins = timeToMinutes(start);
+  let endMins = timeToMinutes(end);
+
+  if (startMins === null || endMins === null) return 0;
   if (endMins < startMins) endMins += 24 * 60;
 
-  return Math.max(0, (endMins - startMins) / 60 - Number(breakHours || 0));
+  let totalMins = endMins - startMins;
+
+  if (lunchOut && lunchIn) {
+    const lunchOutMins = timeToMinutes(lunchOut);
+    let lunchInMins = timeToMinutes(lunchIn);
+
+    if (lunchOutMins !== null && lunchInMins !== null) {
+      if (lunchInMins < lunchOutMins) lunchInMins += 24 * 60;
+      totalMins -= Math.max(0, lunchInMins - lunchOutMins);
+    }
+  }
+
+  return Math.max(0, totalMins / 60);
 }
 
 function fileSizeLabel(size?: number) {
@@ -556,12 +589,15 @@ export default function ManagerPage() {
       position: assignmentForm.position.trim(),
       work_date: assignmentForm.work_date || null,
       call_time: assignmentForm.call_time || null,
-      break_hours: 1,
+      break_hours: 0,
       rate: Number(assignmentForm.rate || 0),
       rate_type: assignmentForm.rate_type || "day",
       confirmed: true,
       approved: false,
       paid: false,
+      hours_approved: false,
+      manager_approved_hours: null,
+      manager_notes: null,
     });
 
     if (error) {
@@ -598,6 +634,62 @@ export default function ManagerPage() {
     await loadAll();
   }
 
+  async function saveManagerReview(
+    row: AssignmentRow,
+    managerApprovedHours: string,
+    managerNotes: string
+  ) {
+    const cleanHours =
+      managerApprovedHours.trim() === ""
+        ? null
+        : Number(managerApprovedHours || 0);
+
+    if (cleanHours !== null && (Number.isNaN(cleanHours) || cleanHours < 0)) {
+      setMessage("Approved hours must be a valid number.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("assignments")
+      .update({
+        manager_approved_hours: cleanHours,
+        manager_notes: managerNotes.trim() || null,
+      })
+      .eq("id", row.id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Manager review saved.");
+    await loadAll();
+  }
+
+  async function approveHours(row: AssignmentRow) {
+    const approvedHours =
+      row.manager_approved_hours !== null &&
+      row.manager_approved_hours !== undefined
+        ? Number(row.manager_approved_hours)
+        : Number(row.trackedHours || 0);
+
+    const { error } = await supabase
+      .from("assignments")
+      .update({
+        manager_approved_hours: approvedHours,
+        hours_approved: true,
+      })
+      .eq("id", row.id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Hours approved.");
+    await loadAll();
+  }
+
   async function openDocument(path: string) {
     const { data, error } = await supabase.storage
       .from("contractor-documents")
@@ -627,17 +719,30 @@ export default function ManagerPage() {
     return map;
   }, [contractors]);
 
-  const assignmentRows = useMemo(() => {
+  const assignmentRows: AssignmentRow[] = useMemo(() => {
     return assignments.map((row) => {
-      const hours = hoursBetween(row.clock_in, row.clock_out, row.break_hours || 0);
+      const trackedHours = hoursBetween(
+        row.clock_in,
+        row.clock_out,
+        row.lunch_clock_out,
+        row.lunch_clock_in
+      );
+
+      const billedHours =
+        row.manager_approved_hours !== null &&
+        row.manager_approved_hours !== undefined
+          ? Number(row.manager_approved_hours)
+          : trackedHours;
+
       const total =
         row.rate_type === "hour"
-          ? hours * Number(row.rate || 0)
+          ? billedHours * Number(row.rate || 0)
           : Number(row.rate || 0);
 
       return {
         ...row,
-        hours,
+        trackedHours,
+        billedHours,
         total,
         event: eventMap[row.event_id],
         contractor: contractorMap[row.contractor_id],
@@ -646,7 +751,9 @@ export default function ManagerPage() {
   }, [assignments, eventMap, contractorMap]);
 
   const filteredEvents = events.filter((event) =>
-    `${event.name} ${event.client || ""} ${event.venue || ""} ${event.address || ""}`
+    `${event.name} ${event.client || ""} ${event.venue || ""} ${
+      event.address || ""
+    }`
       .toLowerCase()
       .includes(search.toLowerCase())
   );
@@ -657,11 +764,23 @@ export default function ManagerPage() {
       .includes(search.toLowerCase())
   );
 
+  const filteredAssignments = assignmentRows.filter((row) =>
+    `${row.position || ""} ${row.contractor?.name || ""} ${
+      row.event?.name || ""
+    }`
+      .toLowerCase()
+      .includes(search.toLowerCase())
+  );
+
+  const approvedInvoiceRows = assignmentRows.filter((row) => row.approved);
+
   const totalPayroll = assignmentRows.reduce((sum, row) => sum + row.total, 0);
   const approvedPayroll = assignmentRows
     .filter((row) => row.approved)
     .reduce((sum, row) => sum + row.total, 0);
-  const unpaidCount = assignmentRows.filter((row) => row.approved && !row.paid).length;
+  const unpaidCount = assignmentRows.filter(
+    (row) => row.approved && !row.paid
+  ).length;
 
   if (status !== "allowed") {
     return (
@@ -792,7 +911,9 @@ export default function ManagerPage() {
                       >
                         <div>
                           <div className="font-semibold">{event.name}</div>
-                          <div className="text-sm text-zinc-400">{event.address || "--"}</div>
+                          <div className="text-sm text-zinc-400">
+                            {event.address || "--"}
+                          </div>
                           <div className="mt-1 text-xs text-zinc-500">
                             Radius: {event.geofence_radius_feet || 750} ft
                           </div>
@@ -823,30 +944,35 @@ export default function ManagerPage() {
                 />
 
                 <div className="mt-5 space-y-3">
-                  {assignmentRows.length ? (
-                    assignmentRows.map((row) => (
+                  {filteredAssignments.length ? (
+                    filteredAssignments.map((row) => (
                       <div
                         key={row.id}
                         className="rounded-2xl border border-white/10 bg-black/25 p-4"
                       >
                         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div>
-                            <div className="font-semibold">{row.position || "Assignment"}</div>
+                            <div className="font-semibold">
+                              {row.position || "Assignment"}
+                            </div>
                             <div className="text-sm text-zinc-400">
                               {row.contractor?.name || "Contractor"} ·{" "}
                               {row.event?.name || "Event"}
                             </div>
                             <div className="mt-1 text-xs text-zinc-500">
-                              {row.event?.venue || ""} {row.event?.address ? `· ${row.event.address}` : ""}
+                              {row.event?.venue || ""}{" "}
+                              {row.event?.address ? `· ${row.event.address}` : ""}
                             </div>
                           </div>
 
                           <div className="text-left md:text-right">
                             <div className="font-semibold text-amber-300">
-                              {dateLabel(row.work_date)} · {timeLabel(row.call_time)}
+                              {dateLabel(row.work_date)} ·{" "}
+                              {timeLabel(row.call_time)}
                             </div>
                             <div className="text-xs text-zinc-500">
-                              {money(row.total)}
+                              Tracked {row.trackedHours.toFixed(2)} hrs · Approved{" "}
+                              {row.billedHours.toFixed(2)} hrs · {money(row.total)}
                             </div>
                           </div>
                         </div>
@@ -893,7 +1019,9 @@ export default function ManagerPage() {
                       label="Start Date"
                       type="date"
                       value={eventForm.start_date}
-                      onChange={(v) => setEventForm({ ...eventForm, start_date: v })}
+                      onChange={(v) =>
+                        setEventForm({ ...eventForm, start_date: v })
+                      }
                     />
                     <Field
                       label="End Date"
@@ -972,28 +1100,38 @@ export default function ManagerPage() {
                     <Field
                       label="Name"
                       value={contractorForm.name}
-                      onChange={(v) => setContractorForm({ ...contractorForm, name: v })}
+                      onChange={(v) =>
+                        setContractorForm({ ...contractorForm, name: v })
+                      }
                     />
                     <Field
                       label="Role"
                       value={contractorForm.role}
-                      onChange={(v) => setContractorForm({ ...contractorForm, role: v })}
+                      onChange={(v) =>
+                        setContractorForm({ ...contractorForm, role: v })
+                      }
                     />
                     <Field
                       label="Phone"
                       value={contractorForm.phone}
-                      onChange={(v) => setContractorForm({ ...contractorForm, phone: v })}
+                      onChange={(v) =>
+                        setContractorForm({ ...contractorForm, phone: v })
+                      }
                     />
                     <Field
                       label="Email"
                       value={contractorForm.email}
-                      onChange={(v) => setContractorForm({ ...contractorForm, email: v })}
+                      onChange={(v) =>
+                        setContractorForm({ ...contractorForm, email: v })
+                      }
                     />
                     <Field
                       label="Rate"
                       type="number"
                       value={contractorForm.rate}
-                      onChange={(v) => setContractorForm({ ...contractorForm, rate: v })}
+                      onChange={(v) =>
+                        setContractorForm({ ...contractorForm, rate: v })
+                      }
                     />
                     <SelectField
                       label="Rate Type"
@@ -1016,12 +1154,16 @@ export default function ManagerPage() {
                     <Field
                       label="City"
                       value={contractorForm.city}
-                      onChange={(v) => setContractorForm({ ...contractorForm, city: v })}
+                      onChange={(v) =>
+                        setContractorForm({ ...contractorForm, city: v })
+                      }
                     />
                     <Field
                       label="State"
                       value={contractorForm.state}
-                      onChange={(v) => setContractorForm({ ...contractorForm, state: v })}
+                      onChange={(v) =>
+                        setContractorForm({ ...contractorForm, state: v })
+                      }
                     />
 
                     <button
@@ -1082,7 +1224,10 @@ export default function ManagerPage() {
                       label="Contractor"
                       value={assignmentForm.contractor_id}
                       onChange={(v) =>
-                        setAssignmentForm({ ...assignmentForm, contractor_id: v })
+                        setAssignmentForm({
+                          ...assignmentForm,
+                          contractor_id: v,
+                        })
                       }
                       options={contractors.map((c) => ({
                         value: String(c.id),
@@ -1145,50 +1290,19 @@ export default function ManagerPage() {
                   <SectionTitle
                     icon={<ClipboardList className="h-5 w-5" />}
                     title="Assignments"
-                    subtitle="Approve, mark paid, and review clock-in/out"
+                    subtitle="Approve hours, approve invoice, mark paid, and review clock-in/out"
                   />
 
                   <div className="mt-5 space-y-3">
-                    {assignmentRows.length ? (
-                      assignmentRows.map((row) => (
-                        <div
+                    {filteredAssignments.length ? (
+                      filteredAssignments.map((row) => (
+                        <ManagerAssignmentCard
                           key={row.id}
-                          className="rounded-2xl border border-white/10 bg-black/25 p-4"
-                        >
-                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                            <div>
-                              <div className="font-semibold">{row.position || "Assignment"}</div>
-                              <div className="text-sm text-zinc-400">
-                                {row.contractor?.name || "Contractor"} · {row.event?.name || "Event"}
-                              </div>
-                              <div className="mt-1 text-xs text-zinc-500">
-                                {dateLabel(row.work_date)} · Call {timeLabel(row.call_time)} · Clock {timeLabel(row.clock_in)} - {timeLabel(row.clock_out)} · {row.hours.toFixed(2)} hrs
-                              </div>
-                            </div>
-
-                            <div className="text-left md:text-right">
-                              <div className="font-semibold text-amber-300">{money(row.total)}</div>
-                              <div className="text-xs text-zinc-500">
-                                {money(Number(row.rate || 0))} / {row.rate_type || "day"}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            <ToggleButton
-                              active={!!row.approved}
-                              label={row.approved ? "Approved" : "Approve"}
-                              onClick={() =>
-                                updateAssignment(row, { approved: !row.approved })
-                              }
-                            />
-                            <ToggleButton
-                              active={!!row.paid}
-                              label={row.paid ? "Paid" : "Mark Paid"}
-                              onClick={() => updateAssignment(row, { paid: !row.paid })}
-                            />
-                          </div>
-                        </div>
+                          row={row}
+                          onSaveReview={saveManagerReview}
+                          onApproveHours={approveHours}
+                          onUpdateAssignment={updateAssignment}
+                        />
                       ))
                     ) : (
                       <EmptyState text="No assignments yet." />
@@ -1211,7 +1325,7 @@ export default function ManagerPage() {
                     icon={<CheckCircle2 className="h-5 w-5" />}
                     label="Approved Payroll"
                     value={money(approvedPayroll)}
-                    sublabel="Approved items"
+                    sublabel="Approved invoice items"
                   />
                   <MetricCard
                     icon={<ClipboardList className="h-5 w-5" />}
@@ -1225,30 +1339,19 @@ export default function ManagerPage() {
                   <SectionTitle
                     icon={<DollarSign className="h-5 w-5" />}
                     title="Payroll Review"
-                    subtitle="Approved and paid status"
+                    subtitle="Approve hours, approve invoices, and mark paid"
                   />
 
                   <div className="mt-5 space-y-3">
-                    {assignmentRows.length ? (
-                      assignmentRows.map((row) => (
-                        <div
+                    {filteredAssignments.length ? (
+                      filteredAssignments.map((row) => (
+                        <ManagerAssignmentCard
                           key={row.id}
-                          className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/25 p-4 md:flex-row md:items-center md:justify-between"
-                        >
-                          <div>
-                            <div className="font-semibold">
-                              {row.contractor?.name || "Contractor"} · {row.position || "Assignment"}
-                            </div>
-                            <div className="text-sm text-zinc-400">
-                              {row.event?.name || "Event"} · {dateLabel(row.work_date)}
-                            </div>
-                            <div className="text-xs text-zinc-500">
-                              Approved: {row.approved ? "Yes" : "No"} · Paid: {row.paid ? "Yes" : "No"}
-                            </div>
-                          </div>
-
-                          <div className="font-semibold text-amber-300">{money(row.total)}</div>
-                        </div>
+                          row={row}
+                          onSaveReview={saveManagerReview}
+                          onApproveHours={approveHours}
+                          onUpdateAssignment={updateAssignment}
+                        />
                       ))
                     ) : (
                       <EmptyState text="No payroll items yet." />
@@ -1263,42 +1366,22 @@ export default function ManagerPage() {
                 <SectionTitle
                   icon={<FileText className="h-5 w-5" />}
                   title="Invoices"
-                  subtitle="Approved assignment invoice records available to contractors"
+                  subtitle="Approve hours, approve invoices, mark paid, and adjust manager-approved hours"
                 />
 
                 <div className="mt-5 space-y-3">
-                  {assignmentRows.filter((row) => row.approved).length ? (
-                    assignmentRows
-                      .filter((row) => row.approved)
-                      .map((row) => (
-                        <div
-                          key={row.id}
-                          className="rounded-2xl border border-white/10 bg-black/25 p-4"
-                        >
-                          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                            <div>
-                              <div className="font-semibold">
-                                Invoice Record #{row.id}
-                              </div>
-                              <div className="text-sm text-zinc-400">
-                                {row.contractor?.name || "Contractor"} · {row.event?.name || "Event"}
-                              </div>
-                              <div className="text-xs text-zinc-500">
-                                {row.position || "Assignment"} · {dateLabel(row.work_date)}
-                              </div>
-                            </div>
-
-                            <div className="text-left md:text-right">
-                              <div className="font-semibold text-amber-300">{money(row.total)}</div>
-                              <div className="text-xs text-zinc-500">
-                                {row.paid ? "Paid" : "Unpaid"}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))
+                  {assignmentRows.length ? (
+                    assignmentRows.map((row) => (
+                      <ManagerAssignmentCard
+                        key={row.id}
+                        row={row}
+                        onSaveReview={saveManagerReview}
+                        onApproveHours={approveHours}
+                        onUpdateAssignment={updateAssignment}
+                      />
+                    ))
                   ) : (
-                    <EmptyState text="No approved invoices yet." />
+                    <EmptyState text="No invoice records yet." />
                   )}
                 </div>
               </GlassCard>
@@ -1377,7 +1460,8 @@ export default function ManagerPage() {
                                   `Contractor #${item.contractor_id}`}
                               </div>
                               <div className="text-sm text-zinc-400">
-                                {dateLabel(item.start_date)} - {dateLabel(item.end_date)}
+                                {dateLabel(item.start_date)} -{" "}
+                                {dateLabel(item.end_date)}
                               </div>
                               <div className="text-xs text-zinc-500">
                                 {item.availability_status}
@@ -1401,6 +1485,125 @@ export default function ManagerPage() {
   );
 }
 
+function ManagerAssignmentCard({
+  row,
+  onSaveReview,
+  onApproveHours,
+  onUpdateAssignment,
+}: {
+  row: AssignmentRow;
+  onSaveReview: (
+    row: AssignmentRow,
+    managerApprovedHours: string,
+    managerNotes: string
+  ) => void;
+  onApproveHours: (row: AssignmentRow) => void;
+  onUpdateAssignment: (row: AssignmentRow, updates: Partial<Assignment>) => void;
+}) {
+  const [approvedHours, setApprovedHours] = useState(
+    row.manager_approved_hours !== null &&
+      row.manager_approved_hours !== undefined
+      ? String(row.manager_approved_hours)
+      : ""
+  );
+  const [notes, setNotes] = useState(row.manager_notes || "");
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="text-lg font-semibold">
+            Invoice Record #{row.id} · {row.position || "Assignment"}
+          </div>
+          <div className="text-sm text-zinc-400">
+            {row.contractor?.name || "Contractor"} · {row.event?.name || "Event"}
+          </div>
+          <div className="mt-1 text-xs text-zinc-500">
+            {dateLabel(row.work_date)} · Call {timeLabel(row.call_time)} · Clock{" "}
+            {timeLabel(row.clock_in)} - {timeLabel(row.clock_out)}
+          </div>
+        </div>
+
+        <div className="text-left md:text-right">
+          <div className="text-xl font-bold text-amber-300">
+            {money(row.total)}
+          </div>
+          <div className="text-xs text-zinc-500">
+            {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <MiniInfo
+          icon={<CalendarDays className="h-4 w-4" />}
+          label="Tracked Hours"
+          value={row.trackedHours.toFixed(2)}
+        />
+        <MiniInfo
+          icon={<CheckCircle2 className="h-4 w-4" />}
+          label="Approved Hours"
+          value={row.billedHours.toFixed(2)}
+        />
+        <MiniInfo
+          icon={<DollarSign className="h-4 w-4" />}
+          label="Invoice Total"
+          value={money(row.total)}
+        />
+        <MiniInfo
+          icon={<ClipboardList className="h-4 w-4" />}
+          label="Status"
+          value={`${row.hours_approved ? "Hours Approved" : "Hours Pending"} · ${
+            row.approved ? "Invoice Approved" : "Invoice Pending"
+          } · ${row.paid ? "Paid" : "Unpaid"}`}
+        />
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-[220px_1fr]">
+        <Field
+          label="Manager Approved Hours"
+          type="number"
+          value={approvedHours}
+          onChange={setApprovedHours}
+        />
+        <TextAreaField
+          label="Manager Notes"
+          value={notes}
+          onChange={setNotes}
+        />
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          onClick={() => onSaveReview(row, approvedHours, notes)}
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+        >
+          <Save className="h-4 w-4" />
+          Save Hours / Notes
+        </button>
+
+        <ToggleButton
+          active={!!row.hours_approved}
+          label={row.hours_approved ? "Hours Approved" : "Approve Hours"}
+          onClick={() => onApproveHours(row)}
+        />
+
+        <ToggleButton
+          active={!!row.approved}
+          label={row.approved ? "Invoice Approved" : "Approve Invoice"}
+          onClick={() => onUpdateAssignment(row, { approved: !row.approved })}
+        />
+
+        <ToggleButton
+          active={!!row.paid}
+          label={row.paid ? "Paid" : "Mark Paid"}
+          onClick={() => onUpdateAssignment(row, { paid: !row.paid })}
+        />
+      </div>
+    </div>
+  );
+}
+
 function EditableEventCard({
   event,
   onSave,
@@ -1420,7 +1623,9 @@ function EditableEventCard({
           <div className="text-sm text-zinc-400">
             {event.client || "--"} · {event.venue || "--"}
           </div>
-          <div className="mt-1 text-xs text-zinc-500">{event.address || "--"}</div>
+          <div className="mt-1 text-xs text-zinc-500">
+            {event.address || "--"}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -1443,18 +1648,56 @@ function EditableEventCard({
       </div>
 
       <div className="mb-4 grid gap-3 md:grid-cols-3">
-        <MiniInfo icon={<CalendarDays className="h-4 w-4" />} label="Start" value={dateLabel(event.start_date)} />
-        <MiniInfo icon={<CalendarDays className="h-4 w-4" />} label="End" value={dateLabel(event.end_date)} />
-        <MiniInfo icon={<MapPin className="h-4 w-4" />} label="GPS Radius" value={`${event.geofence_radius_feet || 750} ft`} />
+        <MiniInfo
+          icon={<CalendarDays className="h-4 w-4" />}
+          label="Start"
+          value={dateLabel(event.start_date)}
+        />
+        <MiniInfo
+          icon={<CalendarDays className="h-4 w-4" />}
+          label="End"
+          value={dateLabel(event.end_date)}
+        />
+        <MiniInfo
+          icon={<MapPin className="h-4 w-4" />}
+          label="GPS Radius"
+          value={`${event.geofence_radius_feet || 750} ft`}
+        />
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <Field label="Name" value={row.name || ""} onChange={(v) => setRow({ ...row, name: v })} />
-        <Field label="Client" value={row.client || ""} onChange={(v) => setRow({ ...row, client: v })} />
-        <Field label="Venue" value={row.venue || ""} onChange={(v) => setRow({ ...row, venue: v })} />
-        <Field label="Address" value={row.address || ""} onChange={(v) => setRow({ ...row, address: v })} />
-        <Field label="Start Date" type="date" value={row.start_date || ""} onChange={(v) => setRow({ ...row, start_date: v })} />
-        <Field label="End Date" type="date" value={row.end_date || ""} onChange={(v) => setRow({ ...row, end_date: v })} />
+        <Field
+          label="Name"
+          value={row.name || ""}
+          onChange={(v) => setRow({ ...row, name: v })}
+        />
+        <Field
+          label="Client"
+          value={row.client || ""}
+          onChange={(v) => setRow({ ...row, client: v })}
+        />
+        <Field
+          label="Venue"
+          value={row.venue || ""}
+          onChange={(v) => setRow({ ...row, venue: v })}
+        />
+        <Field
+          label="Address"
+          value={row.address || ""}
+          onChange={(v) => setRow({ ...row, address: v })}
+        />
+        <Field
+          label="Start Date"
+          type="date"
+          value={row.start_date || ""}
+          onChange={(v) => setRow({ ...row, start_date: v })}
+        />
+        <Field
+          label="End Date"
+          type="date"
+          value={row.end_date || ""}
+          onChange={(v) => setRow({ ...row, end_date: v })}
+        />
         <Field
           label="Geofence Radius Feet"
           type="number"
@@ -1504,11 +1747,32 @@ function EditableContractorCard({
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <Field label="Name" value={row.name || ""} onChange={(v) => setRow({ ...row, name: v })} />
-        <Field label="Role" value={row.role || ""} onChange={(v) => setRow({ ...row, role: v })} />
-        <Field label="Phone" value={row.phone || ""} onChange={(v) => setRow({ ...row, phone: v })} />
-        <Field label="Email" value={row.email || ""} onChange={(v) => setRow({ ...row, email: v })} />
-        <Field label="Rate" type="number" value={String(row.rate || "")} onChange={(v) => setRow({ ...row, rate: Number(v || 0) })} />
+        <Field
+          label="Name"
+          value={row.name || ""}
+          onChange={(v) => setRow({ ...row, name: v })}
+        />
+        <Field
+          label="Role"
+          value={row.role || ""}
+          onChange={(v) => setRow({ ...row, role: v })}
+        />
+        <Field
+          label="Phone"
+          value={row.phone || ""}
+          onChange={(v) => setRow({ ...row, phone: v })}
+        />
+        <Field
+          label="Email"
+          value={row.email || ""}
+          onChange={(v) => setRow({ ...row, email: v })}
+        />
+        <Field
+          label="Rate"
+          type="number"
+          value={String(row.rate || "")}
+          onChange={(v) => setRow({ ...row, rate: Number(v || 0) })}
+        />
         <SelectField
           label="Rate Type"
           value={row.rate_type || "day"}
