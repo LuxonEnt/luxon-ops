@@ -634,6 +634,24 @@ export default function ManagerPage() {
     await loadAll();
   }
 
+  async function deleteAssignment(id: number) {
+    const ok = window.confirm(
+      "Delete this assignment? This will remove it from Schedule Board, Assignments, Payroll, Invoices, and the contractor portal."
+    );
+
+    if (!ok) return;
+
+    const { error } = await supabase.from("assignments").delete().eq("id", id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Assignment deleted.");
+    await loadAll();
+  }
+
   async function saveManagerReview(
     row: AssignmentRow,
     managerApprovedHours: string,
@@ -771,8 +789,6 @@ export default function ManagerPage() {
       .toLowerCase()
       .includes(search.toLowerCase())
   );
-
-  const approvedInvoiceRows = assignmentRows.filter((row) => row.approved);
 
   const totalPayroll = assignmentRows.reduce((sum, row) => sum + row.total, 0);
   const approvedPayroll = assignmentRows
@@ -950,7 +966,7 @@ export default function ManagerPage() {
                         key={row.id}
                         className="rounded-2xl border border-white/10 bg-black/25 p-4"
                       >
-                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                           <div>
                             <div className="font-semibold">
                               {row.position || "Assignment"}
@@ -963,17 +979,34 @@ export default function ManagerPage() {
                               {row.event?.venue || ""}{" "}
                               {row.event?.address ? `· ${row.event.address}` : ""}
                             </div>
+                            <div className="mt-1 text-xs text-zinc-500">
+                              {dateLabel(row.work_date)} · Call{" "}
+                              {timeLabel(row.call_time)} · Clock{" "}
+                              {timeLabel(row.clock_in)} -{" "}
+                              {timeLabel(row.clock_out)}
+                            </div>
                           </div>
 
-                          <div className="text-left md:text-right">
-                            <div className="font-semibold text-amber-300">
-                              {dateLabel(row.work_date)} ·{" "}
-                              {timeLabel(row.call_time)}
+                          <div className="flex flex-col gap-3 md:items-end">
+                            <div className="text-left md:text-right">
+                              <div className="font-semibold text-amber-300">
+                                {dateLabel(row.work_date)} ·{" "}
+                                {timeLabel(row.call_time)}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                Tracked {row.trackedHours.toFixed(2)} hrs ·
+                                Approved {row.billedHours.toFixed(2)} hrs ·{" "}
+                                {money(row.total)}
+                              </div>
                             </div>
-                            <div className="text-xs text-zinc-500">
-                              Tracked {row.trackedHours.toFixed(2)} hrs · Approved{" "}
-                              {row.billedHours.toFixed(2)} hrs · {money(row.total)}
-                            </div>
+
+                            <button
+                              onClick={() => deleteAssignment(row.id)}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Delete Assignment
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1290,7 +1323,7 @@ export default function ManagerPage() {
                   <SectionTitle
                     icon={<ClipboardList className="h-5 w-5" />}
                     title="Assignments"
-                    subtitle="Approve hours, approve invoice, mark paid, and review clock-in/out"
+                    subtitle="Approve hours, approve invoice, mark paid, delete assignment, and review clock-in/out"
                   />
 
                   <div className="mt-5 space-y-3">
@@ -1302,6 +1335,7 @@ export default function ManagerPage() {
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
+                          onDeleteAssignment={deleteAssignment}
                         />
                       ))
                     ) : (
@@ -1339,7 +1373,7 @@ export default function ManagerPage() {
                   <SectionTitle
                     icon={<DollarSign className="h-5 w-5" />}
                     title="Payroll Review"
-                    subtitle="Approve hours, approve invoices, and mark paid"
+                    subtitle="Approve hours, approve invoices, mark paid, and delete assignments"
                   />
 
                   <div className="mt-5 space-y-3">
@@ -1351,6 +1385,7 @@ export default function ManagerPage() {
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
+                          onDeleteAssignment={deleteAssignment}
                         />
                       ))
                     ) : (
@@ -1366,7 +1401,7 @@ export default function ManagerPage() {
                 <SectionTitle
                   icon={<FileText className="h-5 w-5" />}
                   title="Invoices"
-                  subtitle="Approve hours, approve invoices, mark paid, and adjust manager-approved hours"
+                  subtitle="Approve hours, approve invoices, mark paid, delete assignments, and adjust manager-approved hours"
                 />
 
                 <div className="mt-5 space-y-3">
@@ -1378,6 +1413,7 @@ export default function ManagerPage() {
                         onSaveReview={saveManagerReview}
                         onApproveHours={approveHours}
                         onUpdateAssignment={updateAssignment}
+                        onDeleteAssignment={deleteAssignment}
                       />
                     ))
                   ) : (
@@ -1490,6 +1526,7 @@ function ManagerAssignmentCard({
   onSaveReview,
   onApproveHours,
   onUpdateAssignment,
+  onDeleteAssignment,
 }: {
   row: AssignmentRow;
   onSaveReview: (
@@ -1499,6 +1536,7 @@ function ManagerAssignmentCard({
   ) => void;
   onApproveHours: (row: AssignmentRow) => void;
   onUpdateAssignment: (row: AssignmentRow, updates: Partial<Assignment>) => void;
+  onDeleteAssignment: (id: number) => void;
 }) {
   const [approvedHours, setApprovedHours] = useState(
     row.manager_approved_hours !== null &&
@@ -1599,6 +1637,14 @@ function ManagerAssignmentCard({
           label={row.paid ? "Paid" : "Mark Paid"}
           onClick={() => onUpdateAssignment(row, { paid: !row.paid })}
         />
+
+        <button
+          onClick={() => onDeleteAssignment(row.id)}
+          className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete Assignment
+        </button>
       </div>
     </div>
   );
