@@ -69,6 +69,10 @@ type Assignment = {
   manager_approved_hours?: number | null;
   manager_notes?: string | null;
   hours_approved?: boolean | null;
+  manual_time_correction?: boolean | null;
+  time_correction_reason?: string | null;
+  time_corrected_by?: string | null;
+  time_corrected_at?: string | null;
 };
 
 type EventItem = {
@@ -465,9 +469,17 @@ function buildInvoiceHtml(
         <div style="font-size: 14px; margin-bottom: 6px;">Approved: ${
           assignment.approved ? "Yes" : "No"
         }</div>
-        <div style="font-size: 14px;">Paid: ${
+        <div style="font-size: 14px; margin-bottom: 6px;">Paid: ${
           assignment.paid ? "Yes" : "No"
         }</div>
+        <div style="font-size: 14px;">Manual Correction: ${
+          assignment.manual_time_correction ? "Yes" : "No"
+        }</div>
+        ${
+          assignment.time_correction_reason
+            ? `<div style="font-size: 12px; color: #64748b; margin-top: 8px;">Reason: ${escapeHtml(assignment.time_correction_reason)}</div>`
+            : ""
+        }
       </div>
 
       <div class="summary">
@@ -1447,6 +1459,17 @@ function MobileHeroCard({
             {event?.venue ? ` · ${event.venue}` : ""}
           </p>
           <p className="mt-1 text-xs text-zinc-400">{event?.address || ""}</p>
+          {nextAssignment.manual_time_correction ? (
+            <div className="mt-3 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">
+              Time corrected by manager
+              {nextAssignment.time_corrected_at
+                ? ` on ${new Date(nextAssignment.time_corrected_at).toLocaleString()}`
+                : ""}
+              {nextAssignment.time_correction_reason
+                ? ` · ${nextAssignment.time_correction_reason}`
+                : ""}
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-right">
@@ -1587,10 +1610,23 @@ function AssignmentList({
                   <StatusPill active={!!row.approved} text="Approved" />
                   <StatusPill active={!!row.paid} text="Paid" />
                   <StatusPill
+                    active={!!row.manual_time_correction}
+                    text={row.manual_time_correction ? "Manager Corrected" : "No Corrections"}
+                  />
+                  <StatusPill
                     active={geofenceReady}
                     text={geofenceReady ? `GPS ${radius} ft` : "GPS Not Set"}
                   />
                 </div>
+                {row.manual_time_correction ? (
+                  <div className="mt-3 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">
+                    Time corrected by manager
+                    {row.time_corrected_at
+                      ? ` on ${new Date(row.time_corrected_at).toLocaleString()}`
+                      : ""}
+                    {row.time_correction_reason ? ` · ${row.time_correction_reason}` : ""}
+                  </div>
+                ) : null}
               </div>
 
               <div className="text-left md:text-right">
@@ -2288,6 +2324,16 @@ function InvoiceModal({
               <span>{money(assignment.total)}</span>
             </div>
           </div>
+
+          {assignment.manual_time_correction ? (
+            <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <strong>Manager time correction:</strong> This record includes manually corrected time.
+              {assignment.time_correction_reason ? ` Reason: ${assignment.time_correction_reason}` : ""}
+              {assignment.time_corrected_at
+                ? ` Corrected on ${new Date(assignment.time_corrected_at).toLocaleString()}.`
+                : ""}
+            </div>
+          ) : null}
 
           <div className="mt-8 text-xs text-slate-500">
             This record is generated from the contractor portal for your files.
