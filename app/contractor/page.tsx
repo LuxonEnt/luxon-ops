@@ -30,6 +30,14 @@ import {
 
 const COMPANY_LOGO_PATH = "/luxon-logo.png";
 
+const PORTAL_BACKGROUND_STYLE = {
+  backgroundImage:
+    "linear-gradient(rgba(5, 5, 5, 0.82), rgba(5, 5, 5, 0.92)), url('/luxon-dashboard-bg.png')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundAttachment: "fixed",
+} as React.CSSProperties;
+
 const SKILL_OPTIONS = [
   "A1",
   "A2",
@@ -1115,14 +1123,14 @@ export default function ContractorPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#050505] p-8 text-white">
+      <main className="min-h-screen bg-[#050505] p-8 text-white" style={PORTAL_BACKGROUND_STYLE}>
         Loading contractor portal...
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] pb-28 text-white md:pb-8">
+    <main className="min-h-screen bg-[#050505] pb-28 text-white md:pb-8" style={PORTAL_BACKGROUND_STYLE}>
       <div className="pointer-events-none fixed inset-0">
         <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-amber-500/10 blur-3xl" />
         <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-yellow-300/5 blur-3xl" />
