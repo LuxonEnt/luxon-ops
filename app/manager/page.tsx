@@ -273,6 +273,7 @@ export default function ManagerPage() {
   const [search, setSearch] = useState("");
   const [expandedScheduleEventIds, setExpandedScheduleEventIds] = useState<Record<string, boolean>>({});
   const [expandedAssignmentEventIds, setExpandedAssignmentEventIds] = useState<Record<string, boolean>>({});
+  const [expandedPayrollEventIds, setExpandedPayrollEventIds] = useState<Record<string, boolean>>({});
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
@@ -1003,6 +1004,13 @@ export default function ManagerPage() {
     }));
   }
 
+  function togglePayrollGroup(key: string) {
+    setExpandedPayrollEventIds((prev) => ({
+      ...prev,
+      [key]: !(prev[key] ?? true),
+    }));
+  }
+
   const totalPayroll = assignmentRows.reduce((sum, row) => sum + row.total, 0);
   const approvedPayroll = assignmentRows
     .filter((row) => row.approved)
@@ -1555,19 +1563,22 @@ export default function ManagerPage() {
                   <SectionTitle
                     icon={<DollarSign className="h-5 w-5" />}
                     title="Payroll Review"
-                    subtitle="Approve hours, approve invoices, mark paid, and delete assignments"
+                    subtitle="Payroll grouped by event. Open each show to review individual crew, approve hours, mark paid, or delete assignments."
                   />
 
-                  <div className="mt-5 space-y-3">
-                    {filteredAssignments.length ? (
-                      filteredAssignments.map((row) => (
-                        <ManagerAssignmentCard
-                          key={row.id}
-                          row={row}
+                  <div className="mt-5 space-y-4">
+                    {assignmentGroups.length ? (
+                      assignmentGroups.map((group) => (
+                        <EventAssignmentGroupCard
+                          key={group.key}
+                          group={group}
+                          mode="full"
+                          isOpen={expandedPayrollEventIds[group.key] ?? true}
+                          onToggle={() => togglePayrollGroup(group.key)}
+                          onDeleteAssignment={deleteAssignment}
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
-                          onDeleteAssignment={deleteAssignment}
                           onSaveTimeCorrection={saveTimeCorrection}
                         />
                       ))
