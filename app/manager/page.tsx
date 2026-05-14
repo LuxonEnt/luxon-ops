@@ -1496,6 +1496,7 @@ export default function ManagerPage() {
                         onApproveHours={approveHours}
                         onUpdateAssignment={updateAssignment}
                         onDeleteAssignment={deleteAssignment}
+                        onSaveTimeCorrection={saveTimeCorrection}
                       />
                     ))
                   ) : (
