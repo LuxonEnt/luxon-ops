@@ -1,20 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import {
-  Activity,
-  BadgeDollarSign,
-  Briefcase,
-  Building2,
   CalendarDays,
   CheckCircle2,
   ClipboardList,
-  Clock3,
   DollarSign,
   FileText,
-  Filter,
   FolderOpen,
   LogOut,
   MapPin,
@@ -23,32 +16,8 @@ import {
   Search,
   Sparkles,
   Trash2,
-  Upload,
-  UserCheck,
-  UserPlus,
   Users,
 } from "lucide-react";
-
-type Contractor = {
-  id: number;
-  user_id?: string | null;
-  name: string;
-  first_name?: string | null;
-  last_name?: string | null;
-  role?: string | null;
-  phone?: string | null;
-  email?: string | null;
-  company?: string | null;
-  city?: string | null;
-  state?: string | null;
-  emergency_contact_name?: string | null;
-  emergency_contact_phone?: string | null;
-  notes?: string | null;
-  skills?: string[] | null;
-  rate?: number | null;
-  rate_type?: string | null;
-  status?: string | null;
-};
 
 type EventItem = {
   id: number;
@@ -56,13 +25,27 @@ type EventItem = {
   client?: string | null;
   venue?: string | null;
   address?: string | null;
-  latitude?: string | null;
-  longitude?: string | null;
-  geofence_radius_feet?: number | null;
   start_date?: string | null;
   end_date?: string | null;
   status?: string | null;
   notes?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  geofence_radius_feet?: number | null;
+};
+
+type Contractor = {
+  id: number;
+  user_id?: string | null;
+  name: string;
+  email?: string | null;
+  role?: string | null;
+  phone?: string | null;
+  company?: string | null;
+  city?: string | null;
+  state?: string | null;
+  rate?: number | null;
+  rate_type?: string | null;
 };
 
 type Assignment = {
@@ -74,8 +57,6 @@ type Assignment = {
   call_time?: string | null;
   clock_in?: string | null;
   clock_out?: string | null;
-  clock_in_location?: string | null;
-  clock_out_location?: string | null;
   break_hours?: number | null;
   rate?: number | null;
   rate_type?: string | null;
@@ -95,36 +76,34 @@ type AvailabilityItem = {
 };
 
 type StoredDoc = {
-  contractor_id: number;
-  contractor_name: string;
   name: string;
   path: string;
+  contractor_id: number;
+  contractor_name: string;
   updated_at?: string;
+  size?: number;
 };
 
-type CrewRequest = {
-  id: number;
-  event_id: number;
-  title: string;
-  position: string;
-  work_date?: string | null;
-  call_time?: string | null;
-  rate?: number | null;
-  rate_type?: string | null;
-  slots?: number | null;
-  filled_slots?: number | null;
-  status?: string | null;
-};
+type TabName =
+  | "Overview"
+  | "Schedule Board"
+  | "Events"
+  | "Contractors"
+  | "Assignments"
+  | "Payroll"
+  | "Invoices"
+  | "Documents";
 
-type TabKey =
-  | "overview"
-  | "schedule"
-  | "events"
-  | "contractors"
-  | "assignments"
-  | "payroll"
-  | "invoices"
-  | "documents";
+const TABS: TabName[] = [
+  "Overview",
+  "Schedule Board",
+  "Events",
+  "Contractors",
+  "Assignments",
+  "Payroll",
+  "Invoices",
+  "Documents",
+];
 
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
@@ -146,6 +125,7 @@ function timeLabel(value?: string | null) {
   if (!value) return "--";
   const clean = String(value).slice(0, 5);
   const [h, m] = clean.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return value;
   return new Date(2026, 0, 1, h, m).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -160,52 +140,71 @@ function hoursBetween(
   if (!start || !end) return 0;
   const [sh, sm] = String(start).slice(0, 5).split(":").map(Number);
   const [eh, em] = String(end).slice(0, 5).split(":").map(Number);
+  if ([sh, sm, eh, em].some(Number.isNaN)) return 0;
+
   let startMins = sh * 60 + sm;
   let endMins = eh * 60 + em;
   if (endMins < startMins) endMins += 24 * 60;
+
   return Math.max(0, (endMins - startMins) / 60 - Number(breakHours || 0));
 }
 
-function parseDates(text: string) {
-  return text
-    .split(/[\n,]+/)
-    .map((d) => d.trim())
-    .filter(Boolean);
+function fileSizeLabel(size?: number) {
+  if (!size && size !== 0) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function eventTone(status?: string | null) {
-  switch (status) {
-    case "Completed":
-      return "border-emerald-400/20 bg-emerald-500/10 text-emerald-300";
-    case "In Progress":
-      return "border-amber-400/20 bg-amber-500/10 text-amber-300";
-    case "Cancelled":
-      return "border-red-400/20 bg-red-500/10 text-red-300";
-    default:
-      return "border-white/10 bg-white/[0.04] text-zinc-300";
+async function geocodeAddress(address: string) {
+  const cleanAddress = address.trim();
+
+  if (!cleanAddress) {
+    return {
+      latitude: null as number | null,
+      longitude: null as number | null,
+      formatted_address: null as string | null,
+    };
   }
+
+  const response = await fetch("/api/geocode", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      address: cleanAddress,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error || "Could not geocode address.");
+  }
+
+  return {
+    latitude: data.latitude as number,
+    longitude: data.longitude as number,
+    formatted_address: data.formatted_address as string,
+  };
 }
 
 export default function ManagerPage() {
+  const [activeTab, setActiveTab] = useState<TabName>("Overview");
   const [status, setStatus] = useState("Checking access...");
   const [email, setEmail] = useState("");
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
-  const [loadingData, setLoadingData] = useState(true);
-  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
-  const [assignmentFilter, setAssignmentFilter] = useState("all");
-  const [payrollFilter, setPayrollFilter] = useState("all");
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [availability, setAvailability] = useState<AvailabilityItem[]>([]);
   const [documents, setDocuments] = useState<StoredDoc[]>([]);
-  const [documentErrors, setDocumentErrors] = useState<string[]>([]);
-  const [crewRequests, setCrewRequests] = useState<CrewRequest[]>([]);
 
-  const [newEvent, setNewEvent] = useState({
+  const [eventForm, setEventForm] = useState({
     name: "",
     client: "",
     venue: "",
@@ -214,23 +213,22 @@ export default function ManagerPage() {
     end_date: "",
     status: "Scheduled",
     notes: "",
+    geofence_radius_feet: "750",
   });
 
-  const [newContractor, setNewContractor] = useState({
-    first_name: "",
-    last_name: "",
-    role: "",
+  const [contractorForm, setContractorForm] = useState({
+    name: "",
+    role: "Contractor",
     phone: "",
     email: "",
+    rate: "",
+    rate_type: "day",
     company: "",
     city: "",
     state: "",
-    rate: "",
-    rate_type: "day",
-    status: "Active",
   });
 
-  const [newAssignment, setNewAssignment] = useState({
+  const [assignmentForm, setAssignmentForm] = useState({
     event_id: "",
     contractor_id: "",
     position: "",
@@ -240,21 +238,8 @@ export default function ManagerPage() {
     rate_type: "day",
   });
 
-  const [bulkAssignment, setBulkAssignment] = useState({
-    event_id: "",
-    contractor_ids: [] as number[],
-    position: "",
-    dates_text: "",
-    call_time: "",
-    rate: "",
-    rate_type: "day",
-  });
-
-  const [invoiceEventId, setInvoiceEventId] = useState("");
-  const [invoiceContractorId, setInvoiceContractorId] = useState("");
-
   useEffect(() => {
-    async function checkManagerAccess() {
+    async function boot() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -267,135 +252,101 @@ export default function ManagerPage() {
       const userEmail = session.user.email;
       setEmail(userEmail);
 
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("admins")
         .select("email")
         .eq("email", userEmail)
         .maybeSingle();
 
-      if (error || !data) {
+      if (!data) {
         await supabase.auth.signOut();
         window.location.href = "/login";
         return;
       }
 
       setStatus("allowed");
+      await loadAll();
     }
 
-    void checkManagerAccess();
+    void boot();
   }, []);
 
-  useEffect(() => {
-    if (status === "allowed") {
-      void loadData();
-    }
-  }, [status]);
-
-  async function loadData() {
-    setLoadingData(true);
+  async function loadAll() {
+    setLoading(true);
     setMessage("");
 
     const [
-      { data: eventsData, error: eventsError },
-      { data: contractorsData, error: contractorsError },
-      { data: assignmentsData, error: assignmentsError },
-      { data: availabilityData, error: availabilityError },
-      { data: crewRequestsData, error: crewRequestsError },
+      eventsResult,
+      contractorsResult,
+      assignmentsResult,
+      availabilityResult,
     ] = await Promise.all([
       supabase.from("events").select("*").order("start_date", { ascending: false }),
       supabase.from("contractors").select("*").order("name", { ascending: true }),
       supabase.from("assignments").select("*").order("work_date", { ascending: false }),
-      supabase.from("contractor_availability").select("*").order("created_at", { ascending: false }),
-      supabase.from("crew_position_requests").select("*").order("created_at", { ascending: false }),
+      supabase
+        .from("contractor_availability")
+        .select("*")
+        .order("created_at", { ascending: false }),
     ]);
 
     if (
-      eventsError ||
-      contractorsError ||
-      assignmentsError ||
-      availabilityError ||
-      crewRequestsError
+      eventsResult.error ||
+      contractorsResult.error ||
+      assignmentsResult.error ||
+      availabilityResult.error
     ) {
-      setMessage("Could not load manager data.");
-      setLoadingData(false);
+      setMessage(
+        eventsResult.error?.message ||
+          contractorsResult.error?.message ||
+          assignmentsResult.error?.message ||
+          availabilityResult.error?.message ||
+          "Could not load manager data."
+      );
+      setLoading(false);
       return;
     }
 
-    const nextEvents = eventsData || [];
-    const nextContractors = contractorsData || [];
-    const nextAssignments = assignmentsData || [];
-    const nextAvailability = availabilityData || [];
-    const nextRequests = crewRequestsData || [];
+    setEvents(eventsResult.data || []);
+    setContractors(contractorsResult.data || []);
+    setAssignments(assignmentsResult.data || []);
+    setAvailability(availabilityResult.data || []);
 
-    setEvents(nextEvents);
-    setContractors(nextContractors);
-    setAssignments(nextAssignments);
-    setAvailability(nextAvailability);
-    setCrewRequests(nextRequests);
-
-    if (!invoiceEventId && nextEvents[0]) {
-      setInvoiceEventId(String(nextEvents[0].id));
+    if ((eventsResult.data || [])[0] && !assignmentForm.event_id) {
+      setAssignmentForm((prev) => ({
+        ...prev,
+        event_id: String(eventsResult.data![0].id),
+      }));
     }
 
-    if (!invoiceContractorId && nextContractors[0]) {
-      setInvoiceContractorId(String(nextContractors[0].id));
-    }
-
-    await loadDocuments(nextContractors);
-    setLoadingData(false);
+    await loadDocuments(contractorsResult.data || []);
+    setLoading(false);
   }
 
   async function loadDocuments(contractorRows: Contractor[]) {
-    setLoadingDocs(true);
-    setDocumentErrors([]);
-
     const allDocs: StoredDoc[] = [];
-    const errors: string[] = [];
 
     for (const contractor of contractorRows) {
-      const { data, error } = await supabase.storage
+      const { data } = await supabase.storage
         .from("contractor-documents")
         .list(String(contractor.id), {
           limit: 100,
-          sortBy: { column: "name", order: "asc" },
+          sortBy: { column: "updated_at", order: "desc" },
         });
-
-      if (error) {
-        errors.push(`${contractor.name}: ${error.message}`);
-        continue;
-      }
 
       (data || []).forEach((item: any) => {
         allDocs.push({
-          contractor_id: contractor.id,
-          contractor_name: contractor.name,
           name: item.name,
           path: `${contractor.id}/${item.name}`,
+          contractor_id: contractor.id,
+          contractor_name: contractor.name,
           updated_at: item.updated_at,
+          size: item.metadata?.size ?? item.size,
         });
       });
     }
 
     setDocuments(allDocs);
-    setDocumentErrors(errors);
-    setLoadingDocs(false);
-  }
-
-  async function refreshDocuments() {
-    await loadDocuments(contractors);
-  }
-
-  async function openDocument(path: string) {
-    const { data, error } = await supabase.storage
-      .from("contractor-documents")
-      .createSignedUrl(path, 60);
-
-    if (error || !data?.signedUrl) {
-      setMessage("Could not open document.");
-      return;
-    }
-
-    window.open(data.signedUrl, "_blank");
   }
 
   async function signOut() {
@@ -403,21 +354,41 @@ export default function ManagerPage() {
     window.location.href = "/login";
   }
 
-  async function addEvent() {
-    if (!newEvent.name.trim()) {
+  async function createEvent() {
+    if (!eventForm.name.trim()) {
       setMessage("Event name is required.");
       return;
     }
 
+    setMessage("Creating event and checking address GPS location...");
+
+    let geo = {
+      latitude: null as number | null,
+      longitude: null as number | null,
+      formatted_address: null as string | null,
+    };
+
+    try {
+      if (eventForm.address.trim()) {
+        geo = await geocodeAddress(eventForm.address);
+      }
+    } catch (error: any) {
+      setMessage(error?.message || "Could not geocode event address.");
+      return;
+    }
+
     const { error } = await supabase.from("events").insert({
-      name: newEvent.name.trim(),
-      client: newEvent.client.trim() || null,
-      venue: newEvent.venue.trim() || null,
-      address: newEvent.address.trim() || null,
-      start_date: newEvent.start_date || null,
-      end_date: newEvent.end_date || null,
-      status: newEvent.status || "Scheduled",
-      notes: newEvent.notes.trim() || null,
+      name: eventForm.name.trim(),
+      client: eventForm.client.trim() || null,
+      venue: eventForm.venue.trim() || null,
+      address: geo.formatted_address || eventForm.address.trim() || null,
+      start_date: eventForm.start_date || null,
+      end_date: eventForm.end_date || null,
+      status: eventForm.status || "Scheduled",
+      notes: eventForm.notes.trim() || null,
+      latitude: geo.latitude,
+      longitude: geo.longitude,
+      geofence_radius_feet: Number(eventForm.geofence_radius_feet || 750),
     });
 
     if (error) {
@@ -425,7 +396,7 @@ export default function ManagerPage() {
       return;
     }
 
-    setNewEvent({
+    setEventForm({
       name: "",
       client: "",
       venue: "",
@@ -434,34 +405,93 @@ export default function ManagerPage() {
       end_date: "",
       status: "Scheduled",
       notes: "",
+      geofence_radius_feet: "750",
     });
 
-    setMessage("Event created.");
-    await loadData();
+    setMessage("Event created with GPS location.");
+    await loadAll();
   }
 
-  async function addContractor() {
-    if (!newContractor.first_name.trim() || !newContractor.last_name.trim()) {
-      setMessage("Contractor first and last name are required.");
+  async function saveEvent(row: EventItem) {
+    if (!row.name?.trim()) {
+      setMessage("Event name is required.");
       return;
     }
 
-    const fullName =
-      `${newContractor.first_name.trim()} ${newContractor.last_name.trim()}`.trim();
+    setMessage("Saving event and checking address GPS location...");
+
+    let geo = {
+      latitude: row.latitude || null,
+      longitude: row.longitude || null,
+      formatted_address: row.address || null,
+    };
+
+    try {
+      if (row.address?.trim()) {
+        geo = await geocodeAddress(row.address);
+      }
+    } catch (error: any) {
+      setMessage(error?.message || "Could not geocode event address.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("events")
+      .update({
+        name: row.name.trim(),
+        client: row.client?.trim() || null,
+        venue: row.venue?.trim() || null,
+        address: geo.formatted_address || row.address?.trim() || null,
+        start_date: row.start_date || null,
+        end_date: row.end_date || null,
+        status: row.status || "Scheduled",
+        notes: row.notes?.trim() || null,
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+        geofence_radius_feet: row.geofence_radius_feet || 750,
+      })
+      .eq("id", row.id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Event updated with GPS location.");
+    await loadAll();
+  }
+
+  async function deleteEvent(id: number) {
+    const ok = window.confirm("Delete this event?");
+    if (!ok) return;
+
+    const { error } = await supabase.from("events").delete().eq("id", id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Event deleted.");
+    await loadAll();
+  }
+
+  async function createContractor() {
+    if (!contractorForm.name.trim() || !contractorForm.email.trim()) {
+      setMessage("Contractor name and email are required.");
+      return;
+    }
 
     const { error } = await supabase.from("contractors").insert({
-      first_name: newContractor.first_name.trim(),
-      last_name: newContractor.last_name.trim(),
-      name: fullName,
-      role: newContractor.role.trim() || null,
-      phone: newContractor.phone.trim() || null,
-      email: newContractor.email.trim() || null,
-      company: newContractor.company.trim() || null,
-      city: newContractor.city.trim() || null,
-      state: newContractor.state.trim() || null,
-      rate: Number(newContractor.rate || 0),
-      rate_type: newContractor.rate_type,
-      status: newContractor.status,
+      name: contractorForm.name.trim(),
+      role: contractorForm.role.trim() || "Contractor",
+      phone: contractorForm.phone.trim() || null,
+      email: contractorForm.email.trim(),
+      rate: Number(contractorForm.rate || 0),
+      rate_type: contractorForm.rate_type || "day",
+      company: contractorForm.company.trim() || null,
+      city: contractorForm.city.trim() || null,
+      state: contractorForm.state.trim() || null,
     });
 
     if (error) {
@@ -469,44 +499,67 @@ export default function ManagerPage() {
       return;
     }
 
-    setNewContractor({
-      first_name: "",
-      last_name: "",
-      role: "",
+    setContractorForm({
+      name: "",
+      role: "Contractor",
       phone: "",
       email: "",
+      rate: "",
+      rate_type: "day",
       company: "",
       city: "",
       state: "",
-      rate: "",
-      rate_type: "day",
-      status: "Active",
     });
 
     setMessage("Contractor created.");
-    await loadData();
+    await loadAll();
   }
 
-  async function addAssignment() {
+  async function saveContractor(row: Contractor) {
+    const { error } = await supabase
+      .from("contractors")
+      .update({
+        name: row.name?.trim() || null,
+        role: row.role?.trim() || null,
+        phone: row.phone?.trim() || null,
+        email: row.email?.trim() || null,
+        rate: Number(row.rate || 0),
+        rate_type: row.rate_type || "day",
+        company: row.company?.trim() || null,
+        city: row.city?.trim() || null,
+        state: row.state?.trim() || null,
+      })
+      .eq("id", row.id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Contractor updated.");
+    await loadAll();
+  }
+
+  async function createAssignment() {
     if (
-      !newAssignment.event_id ||
-      !newAssignment.contractor_id ||
-      !newAssignment.position.trim()
+      !assignmentForm.event_id ||
+      !assignmentForm.contractor_id ||
+      !assignmentForm.position.trim()
     ) {
       setMessage("Event, contractor, and position are required.");
       return;
     }
 
     const { error } = await supabase.from("assignments").insert({
-      event_id: Number(newAssignment.event_id),
-      contractor_id: Number(newAssignment.contractor_id),
-      position: newAssignment.position.trim(),
-      work_date: newAssignment.work_date || null,
-      call_time: newAssignment.call_time || null,
+      event_id: Number(assignmentForm.event_id),
+      contractor_id: Number(assignmentForm.contractor_id),
+      position: assignmentForm.position.trim(),
+      work_date: assignmentForm.work_date || null,
+      call_time: assignmentForm.call_time || null,
       break_hours: 1,
-      rate: Number(newAssignment.rate || 0),
-      rate_type: newAssignment.rate_type,
-      confirmed: false,
+      rate: Number(assignmentForm.rate || 0),
+      rate_type: assignmentForm.rate_type || "day",
+      confirmed: true,
       approved: false,
       paid: false,
     });
@@ -516,7 +569,7 @@ export default function ManagerPage() {
       return;
     }
 
-    setNewAssignment({
+    setAssignmentForm({
       event_id: "",
       contractor_id: "",
       position: "",
@@ -527,189 +580,60 @@ export default function ManagerPage() {
     });
 
     setMessage("Assignment created.");
-    await loadData();
+    await loadAll();
   }
 
-  async function addBulkAssignments() {
-    if (
-      !bulkAssignment.event_id ||
-      bulkAssignment.contractor_ids.length === 0 ||
-      !bulkAssignment.position.trim()
-    ) {
-      setMessage("Event, at least one contractor, and position are required.");
-      return;
-    }
-
-    const dates = parseDates(bulkAssignment.dates_text);
-    if (!dates.length) {
-      setMessage("Add at least one work date for bulk assignments.");
-      return;
-    }
-
-    const rows = bulkAssignment.contractor_ids.flatMap((contractorId) =>
-      dates.map((workDate) => ({
-        event_id: Number(bulkAssignment.event_id),
-        contractor_id: contractorId,
-        position: bulkAssignment.position.trim(),
-        work_date: workDate,
-        call_time: bulkAssignment.call_time || null,
-        break_hours: 1,
-        rate: Number(bulkAssignment.rate || 0),
-        rate_type: bulkAssignment.rate_type,
-        confirmed: false,
-        approved: false,
-        paid: false,
-      }))
-    );
-
-    const { error } = await supabase.from("assignments").insert(rows);
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    setBulkAssignment({
-      event_id: "",
-      contractor_ids: [],
-      position: "",
-      dates_text: "",
-      call_time: "",
-      rate: "",
-      rate_type: "day",
-    });
-
-    setMessage("Bulk assignments created.");
-    await loadData();
-  }
-
-  async function updateEventField(
-    id: number,
-    field: keyof EventItem,
-    value: string
-  ) {
-    const payload: Record<string, string | null> = { [field]: value || null };
-    const { error } = await supabase.from("events").update(payload).eq("id", id);
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    await loadData();
-  }
-
-  async function updateContractorField(
-    contractor: Contractor,
-    field: keyof Contractor,
-    value: string
-  ) {
-    const nextFirst =
-      field === "first_name" ? value : contractor.first_name || "";
-    const nextLast = field === "last_name" ? value : contractor.last_name || "";
-    const nextName =
-      `${nextFirst || ""} ${nextLast || ""}`.trim() || contractor.name || "";
-
-    const payload: Record<string, string | number | null> = { [field]: value || null };
-    if (field === "rate") payload[field] = Number(value || 0);
-    if (field === "first_name" || field === "last_name") payload.name = nextName;
-
-    const { error } = await supabase
-      .from("contractors")
-      .update(payload)
-      .eq("id", contractor.id);
-
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    await loadData();
-  }
-
-  async function updateAssignmentField(
-    id: number,
-    field: keyof Assignment,
-    value: string | boolean
-  ) {
-    const payload: Record<string, string | boolean | number> = { [field]: value };
-    if (field === "rate") payload[field] = Number(value || 0);
-
+  async function updateAssignment(row: Assignment, updates: Partial<Assignment>) {
     const { error } = await supabase
       .from("assignments")
-      .update(payload)
-      .eq("id", id);
+      .update(updates)
+      .eq("id", row.id);
 
     if (error) {
       setMessage(error.message);
       return;
     }
 
-    await loadData();
+    setMessage("Assignment updated.");
+    await loadAll();
   }
 
-  async function removeEvent(id: number) {
-    const ok = window.confirm("Delete this event?");
-    if (!ok) return;
+  async function openDocument(path: string) {
+    const { data, error } = await supabase.storage
+      .from("contractor-documents")
+      .createSignedUrl(path, 120);
 
-    const { error } = await supabase.from("events").delete().eq("id", id);
-    if (error) {
-      setMessage(error.message);
+    if (error || !data?.signedUrl) {
+      setMessage("Could not open file.");
       return;
     }
 
-    await loadData();
-  }
-
-  async function removeContractor(id: number) {
-    const ok = window.confirm("Delete this contractor?");
-    if (!ok) return;
-
-    const { error } = await supabase.from("contractors").delete().eq("id", id);
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    await loadData();
-  }
-
-  async function removeAssignment(id: number) {
-    const ok = window.confirm("Delete this assignment?");
-    if (!ok) return;
-
-    const { error } = await supabase.from("assignments").delete().eq("id", id);
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    await loadData();
+    window.open(data.signedUrl, "_blank");
   }
 
   const eventMap = useMemo(() => {
     const map: Record<number, EventItem> = {};
-    events.forEach((e) => {
-      map[e.id] = e;
+    events.forEach((event) => {
+      map[event.id] = event;
     });
     return map;
   }, [events]);
 
   const contractorMap = useMemo(() => {
     const map: Record<number, Contractor> = {};
-    contractors.forEach((c) => {
-      map[c.id] = c;
+    contractors.forEach((contractor) => {
+      map[contractor.id] = contractor;
     });
     return map;
   }, [contractors]);
 
-  const payrollRows = useMemo(() => {
+  const assignmentRows = useMemo(() => {
     return assignments.map((row) => {
       const hours = hoursBetween(row.clock_in, row.clock_out, row.break_hours || 0);
       const total =
-        row.rate_type === "day"
-          ? Number(row.rate || 0)
-          : hours * Number(row.rate || 0);
+        row.rate_type === "hour"
+          ? hours * Number(row.rate || 0)
+          : Number(row.rate || 0);
 
       return {
         ...row,
@@ -721,33 +645,6 @@ export default function ManagerPage() {
     });
   }, [assignments, eventMap, contractorMap]);
 
-  const totalPayroll = payrollRows.reduce((sum, row) => sum + row.total, 0);
-  const approvedPayroll = payrollRows
-    .filter((row) => row.approved)
-    .reduce((sum, row) => sum + row.total, 0);
-  const unpaidCount = payrollRows.filter((row) => !row.paid).length;
-  const approvedCount = payrollRows.filter((row) => row.approved).length;
-
-  const openRequests = crewRequests.filter((r) => (r.status || "Open") !== "Filled");
-
-  const upcomingEvents = [...events]
-    .filter((event) => event.start_date)
-    .sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)));
-
-  const recentAssignments = [...payrollRows].slice(0, 6);
-
-  const scheduleBoard = useMemo(() => {
-    const grouped: Record<string, typeof payrollRows> = {};
-    [...payrollRows]
-      .sort((a, b) => String(a.work_date || "").localeCompare(String(b.work_date || "")))
-      .forEach((row) => {
-        const key = row.work_date || "No Date";
-        if (!grouped[key]) grouped[key] = [];
-        grouped[key].push(row);
-      });
-    return grouped;
-  }, [payrollRows]);
-
   const filteredEvents = events.filter((event) =>
     `${event.name} ${event.client || ""} ${event.venue || ""} ${event.address || ""}`
       .toLowerCase()
@@ -755,74 +652,16 @@ export default function ManagerPage() {
   );
 
   const filteredContractors = contractors.filter((contractor) =>
-    `${contractor.name} ${contractor.email || ""} ${contractor.role || ""} ${
-      contractor.company || ""
-    }`
+    `${contractor.name} ${contractor.email || ""} ${contractor.role || ""}`
       .toLowerCase()
       .includes(search.toLowerCase())
   );
 
-  const filteredAssignments = payrollRows.filter((row) => {
-    const matchesSearch = `${row.contractor?.name || ""} ${row.event?.name || ""} ${
-      row.position || ""
-    }`
-      .toLowerCase()
-      .includes(search.toLowerCase());
-
-    if (!matchesSearch) return false;
-
-    if (assignmentFilter === "confirmed") return !!row.confirmed;
-    if (assignmentFilter === "approved") return !!row.approved;
-    if (assignmentFilter === "paid") return !!row.paid;
-    if (assignmentFilter === "pending")
-      return !row.confirmed || !row.approved || !row.paid;
-
-    return true;
-  });
-
-  const filteredPayrollRows = payrollRows.filter((row) => {
-    const matchesSearch = `${row.contractor?.name || ""} ${row.event?.name || ""} ${
-      row.position || ""
-    }`
-      .toLowerCase()
-      .includes(search.toLowerCase());
-
-    if (!matchesSearch) return false;
-
-    if (payrollFilter === "approved") return !!row.approved;
-    if (payrollFilter === "unpaid") return !row.paid;
-    if (payrollFilter === "paid") return !!row.paid;
-    if (payrollFilter === "pending") return !row.approved;
-
-    return true;
-  });
-
-  const filteredDocuments = documents.filter((doc) =>
-    `${doc.contractor_name} ${doc.name}`.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const filteredAvailability = availability.filter((item) => {
-    const contractorName = contractorMap[item.contractor_id]?.name || "";
-    return `${contractorName} ${item.availability_status} ${item.notes || ""}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
-  });
-
-  const invoiceRows = payrollRows.filter(
-    (row) =>
-      String(row.event_id) === invoiceEventId &&
-      String(row.contractor_id) === invoiceContractorId &&
-      !!row.approved
-  );
-
-  const invoiceContractor = contractorMap[Number(invoiceContractorId)];
-  const invoiceEvent = eventMap[Number(invoiceEventId)];
-  const invoiceTotal = invoiceRows.reduce((sum, row) => sum + row.total, 0);
-  const invoiceHours = invoiceRows.reduce((sum, row) => sum + row.hours, 0);
-
-  function printInvoice() {
-    window.print();
-  }
+  const totalPayroll = assignmentRows.reduce((sum, row) => sum + row.total, 0);
+  const approvedPayroll = assignmentRows
+    .filter((row) => row.approved)
+    .reduce((sum, row) => sum + row.total, 0);
+  const unpaidCount = assignmentRows.filter((row) => row.approved && !row.paid).length;
 
   if (status !== "allowed") {
     return (
@@ -853,25 +692,48 @@ export default function ManagerPage() {
             <p className="mt-2 text-zinc-400">Signed in as {email}</p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="relative w-full min-w-[260px] lg:w-80">
-              <Search className="absolute left-4 top-3.5 h-4 w-4 text-zinc-500" />
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-3.5 h-4 w-4 text-zinc-500" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search across manager portal..."
-                className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.04] pl-11 pr-4 text-sm text-white outline-none placeholder:text-zinc-500"
+                className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.05] pl-11 pr-4 text-sm outline-none focus:border-amber-400/40 md:w-80"
               />
             </div>
 
             <button
               onClick={signOut}
-              className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+              className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut className="mr-2 inline h-4 w-4" />
               Sign Out
             </button>
           </div>
+        </div>
+
+        <div className="mb-6 flex flex-wrap gap-3">
+          {TABS.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`rounded-2xl px-5 py-3 text-sm font-semibold transition ${
+                activeTab === tab
+                  ? "bg-gradient-to-r from-amber-300 to-yellow-600 text-black shadow-[0_0_30px_rgba(245,158,11,0.25)]"
+                  : "border border-white/10 bg-white/[0.05] text-white"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+
+          <a
+            href="/manager/requests"
+            className="rounded-2xl border border-amber-400/20 bg-amber-400/10 px-5 py-3 text-sm font-semibold text-amber-200"
+          >
+            Open Position Requests
+          </a>
         </div>
 
         {message && (
@@ -880,848 +742,797 @@ export default function ManagerPage() {
           </div>
         )}
 
-        <div className="mb-6 flex flex-wrap gap-3">
-          <TabButton active={activeTab === "overview"} onClick={() => setActiveTab("overview")} label="Overview" />
-          <TabButton active={activeTab === "schedule"} onClick={() => setActiveTab("schedule")} label="Schedule Board" />
-          <TabButton active={activeTab === "events"} onClick={() => setActiveTab("events")} label="Events" />
-          <TabButton active={activeTab === "contractors"} onClick={() => setActiveTab("contractors")} label="Contractors" />
-          <TabButton active={activeTab === "assignments"} onClick={() => setActiveTab("assignments")} label="Assignments" />
-          <TabButton active={activeTab === "payroll"} onClick={() => setActiveTab("payroll")} label="Payroll" />
-          <TabButton active={activeTab === "invoices"} onClick={() => setActiveTab("invoices")} label="Invoices" />
-          <TabButton active={activeTab === "documents"} onClick={() => setActiveTab("documents")} label="Documents" />
-        </div>
-
-        {loadingData ? (
+        {loading ? (
           <GlassCard>
-            <div className="text-zinc-300">Loading manager data...</div>
+            <div className="text-zinc-300">Loading manager portal...</div>
           </GlassCard>
-        ) : null}
-
-        {activeTab === "overview" && !loadingData && (
-          <div className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <MetricCard icon={<CalendarDays className="h-5 w-5" />} label="Events" value={String(events.length)} sublabel="Active schedule items" />
-              <MetricCard icon={<Users className="h-5 w-5" />} label="Contractors" value={String(contractors.length)} sublabel="Rostered crew" />
-              <MetricCard icon={<ClipboardList className="h-5 w-5" />} label="Assignments" value={String(assignments.length)} sublabel={`${approvedCount} approved records`} />
-              <MetricCard icon={<DollarSign className="h-5 w-5" />} label="Payroll" value={money(totalPayroll)} sublabel={`${unpaidCount} unpaid items`} />
-              <MetricCard icon={<FolderOpen className="h-5 w-5" />} label="Open Requests" value={String(openRequests.length)} sublabel={`${availability.length} availability rows`} />
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-3">
-              <GlassCard className="xl:col-span-2">
-                <SectionTitle
-                  icon={<Activity className="h-5 w-5" />}
-                  title="Recent Assignments"
-                  subtitle="Latest crew activity and pay visibility"
-                />
-                <div className="mt-5 space-y-3">
-                  {recentAssignments.length ? (
-                    recentAssignments.map((row) => (
-                      <div key={row.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                          <div>
-                            <div className="font-semibold">{row.contractor?.name || "Contractor"}</div>
-                            <div className="text-sm text-zinc-400">
-                              {row.position || "Assignment"} · {row.event?.name || "Event"}
-                            </div>
-                          </div>
-                          <div className="text-left md:text-right">
-                            <div className="font-semibold text-amber-300">{money(row.total)}</div>
-                            <div className="text-xs text-zinc-500">
-                              {dateLabel(row.work_date)} · {row.hours.toFixed(2)} hrs
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <EmptyState text="No recent assignments yet." />
-                  )}
-                </div>
-              </GlassCard>
-
-              <GlassCard>
-                <SectionTitle
-                  icon={<ClipboardList className="h-5 w-5" />}
-                  title="Open Position Requests"
-                  subtitle="Create positions without selecting a contractor"
-                />
-                <div className="mt-5 space-y-3">
-                  {openRequests.slice(0, 4).length ? (
-                    openRequests.slice(0, 4).map((request) => (
-                      <div key={request.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                        <div className="font-semibold">{request.title}</div>
-                        <div className="text-sm text-zinc-400">
-                          {request.position} · {eventMap[request.event_id]?.name || "Event"}
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-500">
-                          {dateLabel(request.work_date)} · {timeLabel(request.call_time)}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <EmptyState text="No open position requests yet." />
-                  )}
-                  <Link
-                    href="/manager/requests"
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
-                  >
-                    <UserCheck className="h-4 w-4" />
-                    Open Requests Page
-                  </Link>
-                </div>
-              </GlassCard>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "schedule" && !loadingData && (
-          <GlassCard>
-            <SectionTitle
-              icon={<ClipboardList className="h-5 w-5" />}
-              title="Schedule Board"
-              subtitle="Crew assignments grouped by work date"
-            />
-
-            <div className="mt-6 space-y-6">
-              {Object.keys(scheduleBoard).length ? (
-                Object.entries(scheduleBoard).map(([date, rows]) => (
-                  <div key={date}>
-                    <div className="mb-3 flex items-center gap-2">
-                      <CalendarDays className="h-4 w-4 text-amber-300" />
-                      <h3 className="text-lg font-semibold">
-                        {date === "No Date" ? "No Date" : dateLabel(date)}
-                      </h3>
-                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-zinc-400">
-                        {rows.length} items
-                      </span>
-                    </div>
-
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      {rows.map((row) => (
-                        <div
-                          key={row.id}
-                          className="rounded-2xl border border-white/10 bg-black/25 p-4"
-                        >
-                          <div className="mb-2 flex items-start justify-between gap-3">
-                            <div>
-                              <div className="font-semibold">{row.position || "Assignment"}</div>
-                              <div className="text-sm text-zinc-400">
-                                {row.contractor?.name || "--"}
-                              </div>
-                            </div>
-                            <StatusStack row={row} />
-                          </div>
-
-                          <div className="space-y-2 text-sm text-zinc-300">
-                            <div className="flex items-center gap-2">
-                              <Clock3 className="h-4 w-4 text-zinc-500" />
-                              {timeLabel(row.call_time)}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Briefcase className="h-4 w-4 text-zinc-500" />
-                              {row.event?.name || "--"}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <MapPin className="h-4 w-4 text-zinc-500" />
-                              {row.event?.venue || "--"}
-                            </div>
-                            <div className="flex items-center gap-2 font-medium text-amber-300">
-                              <BadgeDollarSign className="h-4 w-4" />
-                              {money(row.total)}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <EmptyState text="No schedule items yet." />
-              )}
-            </div>
-          </GlassCard>
-        )}
-
-        {activeTab === "events" && !loadingData && (
-          <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-            <GlassCard>
-              <SectionTitle icon={<Plus className="h-5 w-5" />} title="Create Event" subtitle="Add a new event to the schedule" />
-              <div className="mt-5 space-y-3">
-                <Field label="Event Name" value={newEvent.name} onChange={(v) => setNewEvent({ ...newEvent, name: v })} />
-                <Field label="Client" value={newEvent.client} onChange={(v) => setNewEvent({ ...newEvent, client: v })} />
-                <Field label="Venue" value={newEvent.venue} onChange={(v) => setNewEvent({ ...newEvent, venue: v })} />
-                <Field label="Address" value={newEvent.address} onChange={(v) => setNewEvent({ ...newEvent, address: v })} />
-                <Field label="Start Date" type="date" value={newEvent.start_date} onChange={(v) => setNewEvent({ ...newEvent, start_date: v })} />
-                <Field label="End Date" type="date" value={newEvent.end_date} onChange={(v) => setNewEvent({ ...newEvent, end_date: v })} />
-                <SelectField
-                  label="Status"
-                  value={newEvent.status}
-                  onChange={(v) => setNewEvent({ ...newEvent, status: v })}
-                  options={["Scheduled", "In Progress", "Completed", "Cancelled"]}
-                />
-                <TextAreaField label="Notes" value={newEvent.notes} onChange={(v) => setNewEvent({ ...newEvent, notes: v })} />
-                <PrimaryButton onClick={addEvent}>Create Event</PrimaryButton>
-              </div>
-            </GlassCard>
-
-            <GlassCard>
-              <SectionTitle icon={<CalendarDays className="h-5 w-5" />} title="Events" subtitle={`${filteredEvents.length} matching results`} />
-              <div className="mt-5 space-y-4">
-                {filteredEvents.length ? (
-                  filteredEvents.map((event) => (
-                    <EntityCard
-                      key={event.id}
-                      title={event.name}
-                      subtitle={`${event.client || "No client"}${event.venue ? ` · ${event.venue}` : ""}`}
-                      onDelete={() => removeEvent(event.id)}
-                      rightBadge={
-                        <span className={`rounded-full border px-2.5 py-1 text-[11px] ${eventTone(event.status)}`}>
-                          {event.status || "Scheduled"}
-                        </span>
-                      }
-                    >
-                      <div className="mb-4 grid gap-3 md:grid-cols-3">
-                        <MiniInfo icon={<CalendarDays className="h-4 w-4" />} label="Start" value={dateLabel(event.start_date)} />
-                        <MiniInfo icon={<CalendarDays className="h-4 w-4" />} label="End" value={dateLabel(event.end_date)} />
-                        <MiniInfo icon={<MapPin className="h-4 w-4" />} label="Venue" value={event.venue || "--"} />
-                      </div>
-
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <Field label="Name" value={event.name || ""} onChange={(v) => updateEventField(event.id, "name", v)} />
-                        <Field label="Client" value={event.client || ""} onChange={(v) => updateEventField(event.id, "client", v)} />
-                        <Field label="Venue" value={event.venue || ""} onChange={(v) => updateEventField(event.id, "venue", v)} />
-                        <Field label="Address" value={event.address || ""} onChange={(v) => updateEventField(event.id, "address", v)} />
-                        <Field label="Start Date" type="date" value={event.start_date || ""} onChange={(v) => updateEventField(event.id, "start_date", v)} />
-                        <Field label="End Date" type="date" value={event.end_date || ""} onChange={(v) => updateEventField(event.id, "end_date", v)} />
-                      </div>
-                    </EntityCard>
-                  ))
-                ) : (
-                  <EmptyState text="No events found." />
-                )}
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {activeTab === "contractors" && !loadingData && (
-          <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-            <GlassCard>
-              <SectionTitle icon={<UserPlus className="h-5 w-5" />} title="Create Contractor" subtitle="Add someone to the roster" />
-              <div className="mt-5 space-y-3">
-                <Field label="First Name" value={newContractor.first_name} onChange={(v) => setNewContractor({ ...newContractor, first_name: v })} />
-                <Field label="Last Name" value={newContractor.last_name} onChange={(v) => setNewContractor({ ...newContractor, last_name: v })} />
-                <Field label="Role" value={newContractor.role} onChange={(v) => setNewContractor({ ...newContractor, role: v })} />
-                <Field label="Phone" value={newContractor.phone} onChange={(v) => setNewContractor({ ...newContractor, phone: v })} />
-                <Field label="Email" value={newContractor.email} onChange={(v) => setNewContractor({ ...newContractor, email: v })} />
-                <Field label="Company" value={newContractor.company} onChange={(v) => setNewContractor({ ...newContractor, company: v })} />
-                <Field label="City" value={newContractor.city} onChange={(v) => setNewContractor({ ...newContractor, city: v })} />
-                <Field label="State" value={newContractor.state} onChange={(v) => setNewContractor({ ...newContractor, state: v })} />
-                <Field label="Rate" type="number" value={newContractor.rate} onChange={(v) => setNewContractor({ ...newContractor, rate: v })} />
-                <SelectField
-                  label="Rate Type"
-                  value={newContractor.rate_type}
-                  onChange={(v) => setNewContractor({ ...newContractor, rate_type: v })}
-                  options={["day", "hour"]}
-                />
-                <SelectField
-                  label="Status"
-                  value={newContractor.status}
-                  onChange={(v) => setNewContractor({ ...newContractor, status: v })}
-                  options={["Active", "Inactive"]}
-                />
-                <PrimaryButton onClick={addContractor}>Create Contractor</PrimaryButton>
-              </div>
-            </GlassCard>
-
-            <GlassCard>
-              <SectionTitle icon={<Users className="h-5 w-5" />} title="Contractors" subtitle={`${filteredContractors.length} matching results`} />
-              <div className="mt-5 space-y-4">
-                {filteredContractors.length ? (
-                  filteredContractors.map((contractor) => (
-                    <EntityCard
-                      key={contractor.id}
-                      title={contractor.name}
-                      subtitle={`${contractor.email || "No email"}${contractor.role ? ` · ${contractor.role}` : ""}`}
-                      onDelete={() => removeContractor(contractor.id)}
-                      rightBadge={
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-zinc-300">
-                          {contractor.status || "Active"}
-                        </span>
-                      }
-                    >
-                      <div className="mb-4 grid gap-3 md:grid-cols-4">
-                        <MiniInfo icon={<Briefcase className="h-4 w-4" />} label="Role" value={contractor.role || "--"} />
-                        <MiniInfo icon={<BadgeDollarSign className="h-4 w-4" />} label="Rate" value={`${money(Number(contractor.rate || 0))} / ${contractor.rate_type || "day"}`} />
-                        <MiniInfo icon={<Building2 className="h-4 w-4" />} label="Company" value={contractor.company || "--"} />
-                        <MiniInfo icon={<Users className="h-4 w-4" />} label="Status" value={contractor.status || "Active"} />
-                      </div>
-
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <Field label="First Name" value={contractor.first_name || ""} onChange={(v) => updateContractorField(contractor, "first_name", v)} />
-                        <Field label="Last Name" value={contractor.last_name || ""} onChange={(v) => updateContractorField(contractor, "last_name", v)} />
-                        <Field label="Role" value={contractor.role || ""} onChange={(v) => updateContractorField(contractor, "role", v)} />
-                        <Field label="Phone" value={contractor.phone || ""} onChange={(v) => updateContractorField(contractor, "phone", v)} />
-                        <Field label="Email" value={contractor.email || ""} onChange={(v) => updateContractorField(contractor, "email", v)} />
-                        <Field label="Rate" type="number" value={String(contractor.rate || 0)} onChange={(v) => updateContractorField(contractor, "rate", v)} />
-                      </div>
-                    </EntityCard>
-                  ))
-                ) : (
-                  <EmptyState text="No contractors found." />
-                )}
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {activeTab === "assignments" && !loadingData && (
-          <div className="space-y-6">
-            <GlassCard>
-              <SectionTitle
-                icon={<UserCheck className="h-5 w-5" />}
-                title="Open Position Posting"
-                subtitle="Create a position for all contractors without selecting anyone first"
-              />
-              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <div className="text-sm font-semibold">How this works</div>
-                  <div className="mt-2 text-sm text-zinc-400">
-                    Use the Requests page to post open positions to all contractors.
-                    They can respond available, and then you confirm the one you want later.
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <div className="text-sm font-semibold">No contractor required</div>
-                  <div className="mt-2 text-sm text-zinc-400">
-                    This is different from direct assignments. It is a position posting workflow.
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <div className="text-sm font-semibold">Open requests</div>
-                  <div className="mt-2 text-3xl font-bold text-amber-300">
-                    {openRequests.length}
-                  </div>
-                </div>
-
-                <div className="flex items-center">
-                  <Link
-                    href="/manager/requests"
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
-                  >
-                    <UserCheck className="h-4 w-4" />
-                    Go to Open Position Requests
-                  </Link>
-                </div>
-              </div>
-            </GlassCard>
-
-            <div className="grid gap-6 xl:grid-cols-2">
-              <GlassCard>
-                <SectionTitle icon={<Plus className="h-5 w-5" />} title="Create Assignment" subtitle="Directly assign one contractor to one event" />
-                <div className="mt-5 space-y-3">
-                  <SelectField
-                    label="Event"
-                    value={newAssignment.event_id}
-                    onChange={(v) => setNewAssignment({ ...newAssignment, event_id: v })}
-                    options={events.map((e) => ({ value: String(e.id), label: e.name }))}
+        ) : (
+          <>
+            {activeTab === "Overview" && (
+              <div className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <MetricCard
+                    icon={<CalendarDays className="h-5 w-5" />}
+                    label="Events"
+                    value={String(events.length)}
+                    sublabel="Total scheduled events"
                   />
-                  <SelectField
-                    label="Contractor"
-                    value={newAssignment.contractor_id}
-                    onChange={(v) => setNewAssignment({ ...newAssignment, contractor_id: v })}
-                    options={contractors.map((c) => ({
-                      value: String(c.id),
-                      label: c.name,
-                    }))}
+                  <MetricCard
+                    icon={<Users className="h-5 w-5" />}
+                    label="Contractors"
+                    value={String(contractors.length)}
+                    sublabel="Active roster"
                   />
-                  <Field label="Position" value={newAssignment.position} onChange={(v) => setNewAssignment({ ...newAssignment, position: v })} />
-                  <Field label="Work Date" type="date" value={newAssignment.work_date} onChange={(v) => setNewAssignment({ ...newAssignment, work_date: v })} />
-                  <Field label="Call Time" type="time" value={newAssignment.call_time} onChange={(v) => setNewAssignment({ ...newAssignment, call_time: v })} />
-                  <Field label="Rate" type="number" value={newAssignment.rate} onChange={(v) => setNewAssignment({ ...newAssignment, rate: v })} />
-                  <SelectField
-                    label="Rate Type"
-                    value={newAssignment.rate_type}
-                    onChange={(v) => setNewAssignment({ ...newAssignment, rate_type: v })}
-                    options={["day", "hour"]}
+                  <MetricCard
+                    icon={<ClipboardList className="h-5 w-5" />}
+                    label="Assignments"
+                    value={String(assignments.length)}
+                    sublabel="Confirmed work"
                   />
-                  <PrimaryButton onClick={addAssignment}>Create Assignment</PrimaryButton>
-                </div>
-              </GlassCard>
-
-              <GlassCard>
-                <SectionTitle icon={<ClipboardList className="h-5 w-5" />} title="Bulk Assignments" subtitle="Assign multiple contractors across multiple dates" />
-                <div className="mt-5 space-y-3">
-                  <SelectField
-                    label="Event"
-                    value={bulkAssignment.event_id}
-                    onChange={(v) => setBulkAssignment({ ...bulkAssignment, event_id: v })}
-                    options={events.map((e) => ({ value: String(e.id), label: e.name }))}
-                  />
-
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
-                      Contractors
-                    </span>
-                    <div className="max-h-44 space-y-2 overflow-auto rounded-2xl border border-white/10 bg-black/30 p-3">
-                      {contractors.length ? (
-                        contractors.map((contractor) => {
-                          const checked = bulkAssignment.contractor_ids.includes(contractor.id);
-                          return (
-                            <label
-                              key={contractor.id}
-                              className="flex items-center gap-3 rounded-xl p-2 hover:bg-white/[0.04]"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => {
-                                  const next = e.target.checked
-                                    ? [...bulkAssignment.contractor_ids, contractor.id]
-                                    : bulkAssignment.contractor_ids.filter((id) => id !== contractor.id);
-                                  setBulkAssignment({
-                                    ...bulkAssignment,
-                                    contractor_ids: next,
-                                  });
-                                }}
-                              />
-                              <span className="text-sm">
-                                {contractor.name}
-                                {contractor.role ? ` · ${contractor.role}` : ""}
-                              </span>
-                            </label>
-                          );
-                        })
-                      ) : (
-                        <div className="text-sm text-zinc-400">No contractors available.</div>
-                      )}
-                    </div>
-                  </label>
-
-                  <Field label="Position" value={bulkAssignment.position} onChange={(v) => setBulkAssignment({ ...bulkAssignment, position: v })} />
-                  <TextAreaField
-                    label="Dates (one per line or comma separated)"
-                    value={bulkAssignment.dates_text}
-                    onChange={(v) => setBulkAssignment({ ...bulkAssignment, dates_text: v })}
-                  />
-                  <Field label="Call Time" type="time" value={bulkAssignment.call_time} onChange={(v) => setBulkAssignment({ ...bulkAssignment, call_time: v })} />
-                  <Field label="Rate" type="number" value={bulkAssignment.rate} onChange={(v) => setBulkAssignment({ ...bulkAssignment, rate: v })} />
-                  <SelectField
-                    label="Rate Type"
-                    value={bulkAssignment.rate_type}
-                    onChange={(v) => setBulkAssignment({ ...bulkAssignment, rate_type: v })}
-                    options={["day", "hour"]}
-                  />
-                  <PrimaryButton onClick={addBulkAssignments}>Create Bulk Assignments</PrimaryButton>
-                </div>
-              </GlassCard>
-            </div>
-
-            <GlassCard>
-              <SectionTitle
-                icon={<ClipboardList className="h-5 w-5" />}
-                title="Open Position Requests"
-                subtitle="These are posted to all contractors"
-              />
-              <div className="mt-5 space-y-3">
-                {openRequests.length ? (
-                  openRequests.map((request) => (
-                    <div key={request.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                        <div>
-                          <div className="font-semibold">{request.title}</div>
-                          <div className="text-sm text-zinc-400">
-                            {request.position} · {eventMap[request.event_id]?.name || "Event"}
-                          </div>
-                          <div className="text-xs text-zinc-500">
-                            {dateLabel(request.work_date)} · {timeLabel(request.call_time)} · {money(Number(request.rate || 0))}/{request.rate_type || "day"}
-                          </div>
-                        </div>
-                        <Link
-                          href="/manager/requests"
-                          className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
-                        >
-                          Review Responses
-                        </Link>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <EmptyState text="No open position requests yet." />
-                )}
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {activeTab === "payroll" && !loadingData && (
-          <div className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-3">
-              <MetricCard icon={<DollarSign className="h-5 w-5" />} label="Total Payroll" value={money(totalPayroll)} sublabel="All assignment totals" />
-              <MetricCard icon={<CheckCircle2 className="h-5 w-5" />} label="Approved Payroll" value={money(approvedPayroll)} sublabel="Approved only" />
-              <MetricCard icon={<ClipboardList className="h-5 w-5" />} label="Unpaid Items" value={String(unpaidCount)} sublabel="Assignments not marked paid" />
-            </div>
-
-            <GlassCard>
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <SectionTitle icon={<DollarSign className="h-5 w-5" />} title="Payroll Review" subtitle={`${filteredPayrollRows.length} matching results`} />
-                <div className="w-full md:w-56">
-                  <SimpleSelect
-                    label="Filter"
-                    value={payrollFilter}
-                    onChange={setPayrollFilter}
-                    options={[
-                      { value: "all", label: "All" },
-                      { value: "pending", label: "Pending Approval" },
-                      { value: "approved", label: "Approved" },
-                      { value: "unpaid", label: "Unpaid" },
-                      { value: "paid", label: "Paid" },
-                    ]}
+                  <MetricCard
+                    icon={<DollarSign className="h-5 w-5" />}
+                    label="Payroll"
+                    value={money(totalPayroll)}
+                    sublabel="Total assignment value"
                   />
                 </div>
-              </div>
 
-              <div className="mt-5 overflow-x-auto">
-                <table className="w-full min-w-[980px] text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-white/10 text-zinc-500">
-                      <th className="pb-3 pr-4 font-medium">Contractor</th>
-                      <th className="pb-3 pr-4 font-medium">Event</th>
-                      <th className="pb-3 pr-4 font-medium">Date</th>
-                      <th className="pb-3 pr-4 font-medium">Hours</th>
-                      <th className="pb-3 pr-4 font-medium">Rate</th>
-                      <th className="pb-3 pr-4 font-medium">Total</th>
-                      <th className="pb-3 pr-4 font-medium">Status</th>
-                      <th className="pb-3 font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredPayrollRows.length ? (
-                      filteredPayrollRows.map((row) => (
-                        <tr key={row.id} className="border-b border-white/5">
-                          <td className="py-4 pr-4">
-                            <div className="font-medium text-white">
-                              {row.contractor?.name || "--"}
-                            </div>
-                            <div className="text-xs text-zinc-500">
-                              {row.position || "Assignment"}
-                            </div>
-                          </td>
-                          <td className="py-4 pr-4">{row.event?.name || "--"}</td>
-                          <td className="py-4 pr-4">{dateLabel(row.work_date)}</td>
-                          <td className="py-4 pr-4">{row.hours.toFixed(2)}</td>
-                          <td className="py-4 pr-4">
-                            {money(Number(row.rate || 0))} / {row.rate_type || "day"}
-                          </td>
-                          <td className="py-4 pr-4 font-semibold text-amber-300">
-                            {money(row.total)}
-                          </td>
-                          <td className="py-4 pr-4">
-                            <StatusStack row={row} />
-                          </td>
-                          <td className="py-4">
-                            <div className="flex flex-wrap gap-2">
-                              <ToggleButton active={!!row.confirmed} label="Confirmed" onClick={() => updateAssignmentField(row.id, "confirmed", !row.confirmed)} />
-                              <ToggleButton active={!!row.approved} label="Approved" onClick={() => updateAssignmentField(row.id, "approved", !row.approved)} />
-                              <ToggleButton active={!!row.paid} label="Paid" onClick={() => updateAssignmentField(row.id, "paid", !row.paid)} />
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={8} className="py-8 text-center text-zinc-400">
-                          No payroll items found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {activeTab === "invoices" && !loadingData && (
-          <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-            <GlassCard>
-              <SectionTitle icon={<FileText className="h-5 w-5" />} title="Invoice Builder" subtitle="Build contractor invoice from approved assignments" />
-              <div className="mt-5 space-y-3">
-                <SelectField
-                  label="Event"
-                  value={invoiceEventId}
-                  onChange={setInvoiceEventId}
-                  options={events.map((e) => ({ value: String(e.id), label: e.name }))}
-                />
-                <SelectField
-                  label="Contractor"
-                  value={invoiceContractorId}
-                  onChange={setInvoiceContractorId}
-                  options={contractors.map((c) => ({
-                    value: String(c.id),
-                    label: c.name,
-                  }))}
-                />
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <div className="text-xs uppercase tracking-wide text-zinc-500">
-                    Invoice Total
-                  </div>
-                  <div className="mt-2 text-3xl font-bold text-amber-300">
-                    {money(invoiceTotal)}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-400">
-                    {invoiceRows.length} approved lines · {invoiceHours.toFixed(2)} hours
-                  </div>
-                </div>
-                <PrimaryButton onClick={printInvoice}>Print Invoice</PrimaryButton>
-              </div>
-            </GlassCard>
-
-            <GlassCard className="print-area">
-              <SectionTitle icon={<FileText className="h-5 w-5" />} title="Invoice Preview" subtitle="Approved items only" />
-
-              <div id="manager-invoice-print" className="mt-6 rounded-3xl border border-white/10 bg-white p-10 text-slate-900">
-                <div className="mb-8 flex items-start justify-between border-b border-slate-200 pb-6">
-                  <div>
-                    <div className="text-2xl font-bold">Luxon Entertainment LLC</div>
-                    <div className="text-slate-500">Contractor Invoice</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-4xl font-bold">INVOICE</div>
-                    <div className="mt-2 text-slate-500">
-                      Date: {new Date().toLocaleDateString("en-US")}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mb-6 grid gap-4 md:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-200 p-4">
-                    <div className="text-xs uppercase tracking-wide text-slate-400">
-                      Contractor
-                    </div>
-                    <div className="mt-2 text-lg font-bold">
-                      {invoiceContractor?.name || "Select contractor"}
-                    </div>
-                    <div>{invoiceContractor?.email || ""}</div>
-                    <div>{invoiceContractor?.phone || ""}</div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 p-4">
-                    <div className="text-xs uppercase tracking-wide text-slate-400">
-                      Event
-                    </div>
-                    <div className="mt-2 text-lg font-bold">
-                      {invoiceEvent?.name || "Select event"}
-                    </div>
-                    <div>{invoiceEvent?.client || ""}</div>
-                    <div>{invoiceEvent?.venue || ""}</div>
-                    <div>{invoiceEvent?.address || ""}</div>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-300 bg-slate-100">
-                        <th className="p-3">Date</th>
-                        <th className="p-3">Position</th>
-                        <th className="p-3">Hours</th>
-                        <th className="p-3">Rate</th>
-                        <th className="p-3 text-right">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {invoiceRows.length ? (
-                        invoiceRows.map((row) => (
-                          <tr key={row.id} className="border-b border-slate-200">
-                            <td className="p-3">{dateLabel(row.work_date)}</td>
-                            <td className="p-3">{row.position || "Assignment"}</td>
-                            <td className="p-3">{row.hours.toFixed(2)}</td>
-                            <td className="p-3">
-                              {money(Number(row.rate || 0))} / {row.rate_type || "day"}
-                            </td>
-                            <td className="p-3 text-right font-semibold">
-                              {money(row.total)}
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td className="p-3" colSpan={5}>
-                            No approved invoice rows for this selection.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="mt-6 flex justify-end">
-                  <div className="w-full max-w-sm rounded-2xl bg-slate-100 p-5">
-                    <div className="mb-2 flex justify-between">
-                      <span>Approved Hours</span>
-                      <span>{invoiceHours.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between border-t border-slate-300 pt-3 text-xl font-bold">
-                      <span>Total Due</span>
-                      <span>{money(invoiceTotal)}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </GlassCard>
-          </div>
-        )}
-
-        {activeTab === "documents" && !loadingData && (
-          <div className="space-y-6">
-            <div className="grid gap-6 xl:grid-cols-2">
-              <GlassCard>
-                <div className="flex items-start justify-between gap-4">
+                <GlassCard>
                   <SectionTitle
-                    icon={<FolderOpen className="h-5 w-5" />}
-                    title="Uploaded Contractor Documents"
-                    subtitle={`${filteredDocuments.length} files found`}
+                    icon={<MapPin className="h-5 w-5" />}
+                    title="GPS Clock-In Status"
+                    subtitle="Events must have latitude and longitude for contractor geofence clock-in."
                   />
-                  <button
-                    onClick={refreshDocuments}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${loadingDocs ? "animate-spin" : ""}`} />
-                    Refresh Files
-                  </button>
-                </div>
 
-                {documentErrors.length > 0 ? (
-                  <div className="mt-4 space-y-2">
-                    {documentErrors.map((err) => (
-                      <div key={err} className="rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-200">
-                        {err}
+                  <div className="mt-5 space-y-3">
+                    {events.map((event) => (
+                      <div
+                        key={event.id}
+                        className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/25 p-4 md:flex-row md:items-center md:justify-between"
+                      >
+                        <div>
+                          <div className="font-semibold">{event.name}</div>
+                          <div className="text-sm text-zinc-400">{event.address || "--"}</div>
+                          <div className="mt-1 text-xs text-zinc-500">
+                            Radius: {event.geofence_radius_feet || 750} ft
+                          </div>
+                        </div>
+
+                        {event.latitude && event.longitude ? (
+                          <span className="rounded-2xl border border-emerald-500/20 bg-emerald-500/15 px-4 py-2 text-sm font-semibold text-emerald-300">
+                            GPS Ready
+                          </span>
+                        ) : (
+                          <span className="rounded-2xl border border-red-500/20 bg-red-500/15 px-4 py-2 text-sm font-semibold text-red-300">
+                            GPS Missing
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
-                ) : null}
+                </GlassCard>
+              </div>
+            )}
 
-                <div className="mt-5 space-y-3">
-                  {filteredDocuments.length ? (
-                    filteredDocuments.map((doc) => (
-                      <div
-                        key={doc.path}
-                        className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/25 p-4"
-                      >
-                        <div>
-                          <div className="font-medium">{doc.name}</div>
-                          <div className="text-sm text-zinc-400">{doc.contractor_name}</div>
-                          <div className="text-xs text-zinc-500">
-                            folder: {doc.contractor_id}
-                            {doc.updated_at ? ` · ${new Date(doc.updated_at).toLocaleString()}` : ""}
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() => openDocument(doc.path)}
-                          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
-                        >
-                          <Upload className="h-4 w-4" />
-                          Open
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <EmptyState text={loadingDocs ? "Loading contractor documents..." : "No contractor documents found."} />
-                  )}
-                </div>
-              </GlassCard>
-
+            {activeTab === "Schedule Board" && (
               <GlassCard>
                 <SectionTitle
                   icon={<CalendarDays className="h-5 w-5" />}
-                  title="Availability Submissions"
-                  subtitle={`${filteredAvailability.length} rows found`}
+                  title="Schedule Board"
+                  subtitle="Confirmed assignments by date"
                 />
 
                 <div className="mt-5 space-y-3">
-                  {filteredAvailability.length ? (
-                    filteredAvailability.map((row) => (
+                  {assignmentRows.length ? (
+                    assignmentRows.map((row) => (
                       <div
                         key={row.id}
                         className="rounded-2xl border border-white/10 bg-black/25 p-4"
                       >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div>
-                            <div className="font-medium">
-                              {contractorMap[row.contractor_id]?.name || `Contractor #${row.contractor_id}`}
-                            </div>
+                            <div className="font-semibold">{row.position || "Assignment"}</div>
                             <div className="text-sm text-zinc-400">
-                              {dateLabel(row.start_date)} - {dateLabel(row.end_date)}
+                              {row.contractor?.name || "Contractor"} ·{" "}
+                              {row.event?.name || "Event"}
                             </div>
-                            <div className="text-xs text-zinc-500">
-                              {row.availability_status}
-                              {row.notes ? ` · ${row.notes}` : " · No notes"}
+                            <div className="mt-1 text-xs text-zinc-500">
+                              {row.event?.venue || ""} {row.event?.address ? `· ${row.event.address}` : ""}
                             </div>
                           </div>
 
-                          <div className="flex gap-2">
-                            <Link
-                              href="/manager/requests"
-                              className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
-                            >
-                              Confirm on Requests Page
-                            </Link>
+                          <div className="text-left md:text-right">
+                            <div className="font-semibold text-amber-300">
+                              {dateLabel(row.work_date)} · {timeLabel(row.call_time)}
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              {money(row.total)}
+                            </div>
                           </div>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <EmptyState text="No availability submissions found." />
+                    <EmptyState text="No assignments yet." />
                   )}
                 </div>
               </GlassCard>
-            </div>
-          </div>
+            )}
+
+            {activeTab === "Events" && (
+              <div className="grid gap-6 xl:grid-cols-[0.9fr_2.1fr]">
+                <GlassCard>
+                  <SectionTitle
+                    icon={<Plus className="h-5 w-5" />}
+                    title="Create Event"
+                    subtitle="Address will automatically save GPS coordinates"
+                  />
+
+                  <div className="mt-5 space-y-3">
+                    <Field
+                      label="Event Name"
+                      value={eventForm.name}
+                      onChange={(v) => setEventForm({ ...eventForm, name: v })}
+                    />
+                    <Field
+                      label="Client"
+                      value={eventForm.client}
+                      onChange={(v) => setEventForm({ ...eventForm, client: v })}
+                    />
+                    <Field
+                      label="Venue"
+                      value={eventForm.venue}
+                      onChange={(v) => setEventForm({ ...eventForm, venue: v })}
+                    />
+                    <Field
+                      label="Address"
+                      value={eventForm.address}
+                      onChange={(v) => setEventForm({ ...eventForm, address: v })}
+                    />
+                    <Field
+                      label="Start Date"
+                      type="date"
+                      value={eventForm.start_date}
+                      onChange={(v) => setEventForm({ ...eventForm, start_date: v })}
+                    />
+                    <Field
+                      label="End Date"
+                      type="date"
+                      value={eventForm.end_date}
+                      onChange={(v) => setEventForm({ ...eventForm, end_date: v })}
+                    />
+                    <SelectField
+                      label="Status"
+                      value={eventForm.status}
+                      onChange={(v) => setEventForm({ ...eventForm, status: v })}
+                      options={[
+                        { value: "Scheduled", label: "Scheduled" },
+                        { value: "Completed", label: "Completed" },
+                        { value: "Cancelled", label: "Cancelled" },
+                      ]}
+                    />
+                    <Field
+                      label="Geofence Radius Feet"
+                      type="number"
+                      value={eventForm.geofence_radius_feet}
+                      onChange={(v) =>
+                        setEventForm({ ...eventForm, geofence_radius_feet: v })
+                      }
+                    />
+                    <TextAreaField
+                      label="Notes"
+                      value={eventForm.notes}
+                      onChange={(v) => setEventForm({ ...eventForm, notes: v })}
+                    />
+
+                    <button
+                      onClick={createEvent}
+                      className="w-full rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+                    >
+                      Create Event
+                    </button>
+                  </div>
+                </GlassCard>
+
+                <GlassCard>
+                  <SectionTitle
+                    icon={<CalendarDays className="h-5 w-5" />}
+                    title="Events"
+                    subtitle={`${filteredEvents.length} matching results`}
+                  />
+
+                  <div className="mt-5 space-y-4">
+                    {filteredEvents.length ? (
+                      filteredEvents.map((event) => (
+                        <EditableEventCard
+                          key={event.id}
+                          event={event}
+                          onSave={saveEvent}
+                          onDelete={deleteEvent}
+                        />
+                      ))
+                    ) : (
+                      <EmptyState text="No events found." />
+                    )}
+                  </div>
+                </GlassCard>
+              </div>
+            )}
+
+            {activeTab === "Contractors" && (
+              <div className="grid gap-6 xl:grid-cols-[0.9fr_2.1fr]">
+                <GlassCard>
+                  <SectionTitle
+                    icon={<Plus className="h-5 w-5" />}
+                    title="Create Contractor"
+                    subtitle="Add contractor profile"
+                  />
+
+                  <div className="mt-5 space-y-3">
+                    <Field
+                      label="Name"
+                      value={contractorForm.name}
+                      onChange={(v) => setContractorForm({ ...contractorForm, name: v })}
+                    />
+                    <Field
+                      label="Role"
+                      value={contractorForm.role}
+                      onChange={(v) => setContractorForm({ ...contractorForm, role: v })}
+                    />
+                    <Field
+                      label="Phone"
+                      value={contractorForm.phone}
+                      onChange={(v) => setContractorForm({ ...contractorForm, phone: v })}
+                    />
+                    <Field
+                      label="Email"
+                      value={contractorForm.email}
+                      onChange={(v) => setContractorForm({ ...contractorForm, email: v })}
+                    />
+                    <Field
+                      label="Rate"
+                      type="number"
+                      value={contractorForm.rate}
+                      onChange={(v) => setContractorForm({ ...contractorForm, rate: v })}
+                    />
+                    <SelectField
+                      label="Rate Type"
+                      value={contractorForm.rate_type}
+                      onChange={(v) =>
+                        setContractorForm({ ...contractorForm, rate_type: v })
+                      }
+                      options={[
+                        { value: "day", label: "day" },
+                        { value: "hour", label: "hour" },
+                      ]}
+                    />
+                    <Field
+                      label="Company"
+                      value={contractorForm.company}
+                      onChange={(v) =>
+                        setContractorForm({ ...contractorForm, company: v })
+                      }
+                    />
+                    <Field
+                      label="City"
+                      value={contractorForm.city}
+                      onChange={(v) => setContractorForm({ ...contractorForm, city: v })}
+                    />
+                    <Field
+                      label="State"
+                      value={contractorForm.state}
+                      onChange={(v) => setContractorForm({ ...contractorForm, state: v })}
+                    />
+
+                    <button
+                      onClick={createContractor}
+                      className="w-full rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+                    >
+                      Create Contractor
+                    </button>
+                  </div>
+                </GlassCard>
+
+                <GlassCard>
+                  <SectionTitle
+                    icon={<Users className="h-5 w-5" />}
+                    title="Contractors"
+                    subtitle={`${filteredContractors.length} matching results`}
+                  />
+
+                  <div className="mt-5 space-y-4">
+                    {filteredContractors.length ? (
+                      filteredContractors.map((contractor) => (
+                        <EditableContractorCard
+                          key={contractor.id}
+                          contractor={contractor}
+                          onSave={saveContractor}
+                        />
+                      ))
+                    ) : (
+                      <EmptyState text="No contractors found." />
+                    )}
+                  </div>
+                </GlassCard>
+              </div>
+            )}
+
+            {activeTab === "Assignments" && (
+              <div className="grid gap-6 xl:grid-cols-[0.9fr_2.1fr]">
+                <GlassCard>
+                  <SectionTitle
+                    icon={<Plus className="h-5 w-5" />}
+                    title="Create Assignment"
+                    subtitle="Assign one contractor to one event"
+                  />
+
+                  <div className="mt-5 space-y-3">
+                    <SelectField
+                      label="Event"
+                      value={assignmentForm.event_id}
+                      onChange={(v) =>
+                        setAssignmentForm({ ...assignmentForm, event_id: v })
+                      }
+                      options={events.map((e) => ({
+                        value: String(e.id),
+                        label: e.name,
+                      }))}
+                    />
+                    <SelectField
+                      label="Contractor"
+                      value={assignmentForm.contractor_id}
+                      onChange={(v) =>
+                        setAssignmentForm({ ...assignmentForm, contractor_id: v })
+                      }
+                      options={contractors.map((c) => ({
+                        value: String(c.id),
+                        label: c.name,
+                      }))}
+                    />
+                    <Field
+                      label="Position"
+                      value={assignmentForm.position}
+                      onChange={(v) =>
+                        setAssignmentForm({ ...assignmentForm, position: v })
+                      }
+                    />
+                    <Field
+                      label="Work Date"
+                      type="date"
+                      value={assignmentForm.work_date}
+                      onChange={(v) =>
+                        setAssignmentForm({ ...assignmentForm, work_date: v })
+                      }
+                    />
+                    <Field
+                      label="Call Time"
+                      type="time"
+                      value={assignmentForm.call_time}
+                      onChange={(v) =>
+                        setAssignmentForm({ ...assignmentForm, call_time: v })
+                      }
+                    />
+                    <Field
+                      label="Rate"
+                      type="number"
+                      value={assignmentForm.rate}
+                      onChange={(v) =>
+                        setAssignmentForm({ ...assignmentForm, rate: v })
+                      }
+                    />
+                    <SelectField
+                      label="Rate Type"
+                      value={assignmentForm.rate_type}
+                      onChange={(v) =>
+                        setAssignmentForm({ ...assignmentForm, rate_type: v })
+                      }
+                      options={[
+                        { value: "day", label: "day" },
+                        { value: "hour", label: "hour" },
+                      ]}
+                    />
+
+                    <button
+                      onClick={createAssignment}
+                      className="w-full rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+                    >
+                      Create Assignment
+                    </button>
+                  </div>
+                </GlassCard>
+
+                <GlassCard>
+                  <SectionTitle
+                    icon={<ClipboardList className="h-5 w-5" />}
+                    title="Assignments"
+                    subtitle="Approve, mark paid, and review clock-in/out"
+                  />
+
+                  <div className="mt-5 space-y-3">
+                    {assignmentRows.length ? (
+                      assignmentRows.map((row) => (
+                        <div
+                          key={row.id}
+                          className="rounded-2xl border border-white/10 bg-black/25 p-4"
+                        >
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div>
+                              <div className="font-semibold">{row.position || "Assignment"}</div>
+                              <div className="text-sm text-zinc-400">
+                                {row.contractor?.name || "Contractor"} · {row.event?.name || "Event"}
+                              </div>
+                              <div className="mt-1 text-xs text-zinc-500">
+                                {dateLabel(row.work_date)} · Call {timeLabel(row.call_time)} · Clock {timeLabel(row.clock_in)} - {timeLabel(row.clock_out)} · {row.hours.toFixed(2)} hrs
+                              </div>
+                            </div>
+
+                            <div className="text-left md:text-right">
+                              <div className="font-semibold text-amber-300">{money(row.total)}</div>
+                              <div className="text-xs text-zinc-500">
+                                {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <ToggleButton
+                              active={!!row.approved}
+                              label={row.approved ? "Approved" : "Approve"}
+                              onClick={() =>
+                                updateAssignment(row, { approved: !row.approved })
+                              }
+                            />
+                            <ToggleButton
+                              active={!!row.paid}
+                              label={row.paid ? "Paid" : "Mark Paid"}
+                              onClick={() => updateAssignment(row, { paid: !row.paid })}
+                            />
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <EmptyState text="No assignments yet." />
+                    )}
+                  </div>
+                </GlassCard>
+              </div>
+            )}
+
+            {activeTab === "Payroll" && (
+              <div className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <MetricCard
+                    icon={<DollarSign className="h-5 w-5" />}
+                    label="Total Payroll"
+                    value={money(totalPayroll)}
+                    sublabel="All assignment value"
+                  />
+                  <MetricCard
+                    icon={<CheckCircle2 className="h-5 w-5" />}
+                    label="Approved Payroll"
+                    value={money(approvedPayroll)}
+                    sublabel="Approved items"
+                  />
+                  <MetricCard
+                    icon={<ClipboardList className="h-5 w-5" />}
+                    label="Unpaid Items"
+                    value={String(unpaidCount)}
+                    sublabel="Approved but not paid"
+                  />
+                </div>
+
+                <GlassCard>
+                  <SectionTitle
+                    icon={<DollarSign className="h-5 w-5" />}
+                    title="Payroll Review"
+                    subtitle="Approved and paid status"
+                  />
+
+                  <div className="mt-5 space-y-3">
+                    {assignmentRows.length ? (
+                      assignmentRows.map((row) => (
+                        <div
+                          key={row.id}
+                          className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/25 p-4 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div>
+                            <div className="font-semibold">
+                              {row.contractor?.name || "Contractor"} · {row.position || "Assignment"}
+                            </div>
+                            <div className="text-sm text-zinc-400">
+                              {row.event?.name || "Event"} · {dateLabel(row.work_date)}
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              Approved: {row.approved ? "Yes" : "No"} · Paid: {row.paid ? "Yes" : "No"}
+                            </div>
+                          </div>
+
+                          <div className="font-semibold text-amber-300">{money(row.total)}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <EmptyState text="No payroll items yet." />
+                    )}
+                  </div>
+                </GlassCard>
+              </div>
+            )}
+
+            {activeTab === "Invoices" && (
+              <GlassCard>
+                <SectionTitle
+                  icon={<FileText className="h-5 w-5" />}
+                  title="Invoices"
+                  subtitle="Approved assignment invoice records available to contractors"
+                />
+
+                <div className="mt-5 space-y-3">
+                  {assignmentRows.filter((row) => row.approved).length ? (
+                    assignmentRows
+                      .filter((row) => row.approved)
+                      .map((row) => (
+                        <div
+                          key={row.id}
+                          className="rounded-2xl border border-white/10 bg-black/25 p-4"
+                        >
+                          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <div className="font-semibold">
+                                Invoice Record #{row.id}
+                              </div>
+                              <div className="text-sm text-zinc-400">
+                                {row.contractor?.name || "Contractor"} · {row.event?.name || "Event"}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                {row.position || "Assignment"} · {dateLabel(row.work_date)}
+                              </div>
+                            </div>
+
+                            <div className="text-left md:text-right">
+                              <div className="font-semibold text-amber-300">{money(row.total)}</div>
+                              <div className="text-xs text-zinc-500">
+                                {row.paid ? "Paid" : "Unpaid"}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                  ) : (
+                    <EmptyState text="No approved invoices yet." />
+                  )}
+                </div>
+              </GlassCard>
+            )}
+
+            {activeTab === "Documents" && (
+              <div className="grid gap-6 xl:grid-cols-2">
+                <GlassCard>
+                  <SectionTitle
+                    icon={<FolderOpen className="h-5 w-5" />}
+                    title="Uploaded Contractor Documents"
+                    subtitle={`${documents.length} files found`}
+                  />
+
+                  <div className="mt-5 space-y-3">
+                    <button
+                      onClick={loadAll}
+                      className="mb-3 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
+                    >
+                      <RefreshCw className="mr-2 inline h-4 w-4" />
+                      Refresh Files
+                    </button>
+
+                    {documents.length ? (
+                      documents.map((doc) => (
+                        <div
+                          key={doc.path}
+                          className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/25 p-4 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div>
+                            <div className="font-semibold">{doc.name}</div>
+                            <div className="text-sm text-zinc-400">
+                              {doc.contractor_name}
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              folder: {doc.contractor_id}
+                              {doc.updated_at
+                                ? ` · ${new Date(doc.updated_at).toLocaleString()}`
+                                : ""}
+                              {doc.size ? ` · ${fileSizeLabel(doc.size)}` : ""}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => openDocument(doc.path)}
+                            className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white"
+                          >
+                            Open
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <EmptyState text="No contractor documents found." />
+                    )}
+                  </div>
+                </GlassCard>
+
+                <GlassCard>
+                  <SectionTitle
+                    icon={<CalendarDays className="h-5 w-5" />}
+                    title="Availability Submissions"
+                    subtitle={`${availability.length} rows found`}
+                  />
+
+                  <div className="mt-5 space-y-3">
+                    {availability.length ? (
+                      availability.map((item) => (
+                        <div
+                          key={item.id}
+                          className="rounded-2xl border border-white/10 bg-black/25 p-4"
+                        >
+                          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <div className="font-semibold">
+                                {contractorMap[item.contractor_id]?.name ||
+                                  `Contractor #${item.contractor_id}`}
+                              </div>
+                              <div className="text-sm text-zinc-400">
+                                {dateLabel(item.start_date)} - {dateLabel(item.end_date)}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                {item.availability_status}
+                                {item.notes ? ` · ${item.notes}` : ""}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <EmptyState text="No availability submissions yet." />
+                    )}
+                  </div>
+                </GlassCard>
+              </div>
+            )}
+          </>
         )}
       </div>
-
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          #manager-invoice-print,
-          #manager-invoice-print * {
-            visibility: visible !important;
-          }
-          #manager-invoice-print {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            background: white !important;
-          }
-          @page {
-            size: letter;
-            margin: 0.5in;
-          }
-        }
-      `}</style>
     </main>
   );
 }
 
-function GlassCard({
-  children,
-  className = "",
+function EditableEventCard({
+  event,
+  onSave,
+  onDelete,
 }: {
-  children: React.ReactNode;
-  className?: string;
+  event: EventItem;
+  onSave: (event: EventItem) => void;
+  onDelete: (id: number) => void;
 }) {
+  const [row, setRow] = useState<EventItem>(event);
+
   return (
-    <section
-      className={`rounded-[28px] border border-white/10 bg-white/[0.04] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl ${className}`}
-    >
+    <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="text-xl font-semibold">{event.name}</div>
+          <div className="text-sm text-zinc-400">
+            {event.client || "--"} · {event.venue || "--"}
+          </div>
+          <div className="mt-1 text-xs text-zinc-500">{event.address || "--"}</div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {event.latitude && event.longitude ? (
+            <span className="rounded-full border border-emerald-500/20 bg-emerald-500/15 px-3 py-1 text-xs text-emerald-300">
+              GPS Ready
+            </span>
+          ) : (
+            <span className="rounded-full border border-red-500/20 bg-red-500/15 px-3 py-1 text-xs text-red-300">
+              GPS Missing
+            </span>
+          )}
+          <button
+            onClick={() => onDelete(event.id)}
+            className="rounded-xl border border-red-500/20 bg-red-500/10 p-2 text-red-300"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-4 grid gap-3 md:grid-cols-3">
+        <MiniInfo icon={<CalendarDays className="h-4 w-4" />} label="Start" value={dateLabel(event.start_date)} />
+        <MiniInfo icon={<CalendarDays className="h-4 w-4" />} label="End" value={dateLabel(event.end_date)} />
+        <MiniInfo icon={<MapPin className="h-4 w-4" />} label="GPS Radius" value={`${event.geofence_radius_feet || 750} ft`} />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <Field label="Name" value={row.name || ""} onChange={(v) => setRow({ ...row, name: v })} />
+        <Field label="Client" value={row.client || ""} onChange={(v) => setRow({ ...row, client: v })} />
+        <Field label="Venue" value={row.venue || ""} onChange={(v) => setRow({ ...row, venue: v })} />
+        <Field label="Address" value={row.address || ""} onChange={(v) => setRow({ ...row, address: v })} />
+        <Field label="Start Date" type="date" value={row.start_date || ""} onChange={(v) => setRow({ ...row, start_date: v })} />
+        <Field label="End Date" type="date" value={row.end_date || ""} onChange={(v) => setRow({ ...row, end_date: v })} />
+        <Field
+          label="Geofence Radius Feet"
+          type="number"
+          value={String(row.geofence_radius_feet || 750)}
+          onChange={(v) =>
+            setRow({ ...row, geofence_radius_feet: Number(v || 750) })
+          }
+        />
+        <SelectField
+          label="Status"
+          value={row.status || "Scheduled"}
+          onChange={(v) => setRow({ ...row, status: v })}
+          options={[
+            { value: "Scheduled", label: "Scheduled" },
+            { value: "Completed", label: "Completed" },
+            { value: "Cancelled", label: "Cancelled" },
+          ]}
+        />
+      </div>
+
+      <button
+        onClick={() => onSave(row)}
+        className="mt-4 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+      >
+        Save Event + Update GPS
+      </button>
+    </div>
+  );
+}
+
+function EditableContractorCard({
+  contractor,
+  onSave,
+}: {
+  contractor: Contractor;
+  onSave: (contractor: Contractor) => void;
+}) {
+  const [row, setRow] = useState<Contractor>(contractor);
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
+      <div className="mb-4">
+        <div className="text-xl font-semibold">{contractor.name}</div>
+        <div className="text-sm text-zinc-400">
+          {contractor.email || "--"} · {contractor.role || "--"}
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <Field label="Name" value={row.name || ""} onChange={(v) => setRow({ ...row, name: v })} />
+        <Field label="Role" value={row.role || ""} onChange={(v) => setRow({ ...row, role: v })} />
+        <Field label="Phone" value={row.phone || ""} onChange={(v) => setRow({ ...row, phone: v })} />
+        <Field label="Email" value={row.email || ""} onChange={(v) => setRow({ ...row, email: v })} />
+        <Field label="Rate" type="number" value={String(row.rate || "")} onChange={(v) => setRow({ ...row, rate: Number(v || 0) })} />
+        <SelectField
+          label="Rate Type"
+          value={row.rate_type || "day"}
+          onChange={(v) => setRow({ ...row, rate_type: v })}
+          options={[
+            { value: "day", label: "day" },
+            { value: "hour", label: "hour" },
+          ]}
+        />
+      </div>
+
+      <button
+        onClick={() => onSave(row)}
+        className="mt-4 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+      >
+        Save Contractor
+      </button>
+    </div>
+  );
+}
+
+function GlassCard({ children }: { children: React.ReactNode }) {
+  return (
+    <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl">
       {children}
     </section>
   );
@@ -1770,41 +1581,6 @@ function MetricCard({
   );
 }
 
-function EntityCard({
-  title,
-  subtitle,
-  children,
-  onDelete,
-  rightBadge,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-  onDelete: () => void;
-  rightBadge?: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xl font-semibold">{title}</div>
-          <div className="text-sm text-zinc-400">{subtitle}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          {rightBadge}
-          <button
-            onClick={onDelete}
-            className="rounded-xl border border-red-400/20 bg-red-400/10 p-2 text-red-300 transition hover:bg-red-400/20"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-      {children}
-    </div>
-  );
-}
-
 function MiniInfo({
   icon,
   label,
@@ -1822,29 +1598,6 @@ function MiniInfo({
       </div>
       <div className="text-sm font-medium text-zinc-100">{value}</div>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-2xl px-5 py-2.5 text-sm font-medium transition ${
-        active
-          ? "bg-amber-400 text-black shadow-lg shadow-amber-500/20"
-          : "border border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.07]"
-      }`}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -1868,7 +1621,7 @@ function Field({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
+        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none focus:border-amber-400/40"
       />
     </label>
   );
@@ -1891,49 +1644,13 @@ function TextAreaField({
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="min-h-[100px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/40"
+        className="min-h-[100px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-white outline-none focus:border-amber-400/40"
       />
     </label>
   );
 }
 
 function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: Array<string | { value: string; label: string }>;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none focus:border-amber-400/40"
-      >
-        <option value="">Select</option>
-        {options.map((option) => {
-          const optionValue = typeof option === "string" ? option : option.value;
-          const optionLabel = typeof option === "string" ? option : option.label;
-          return (
-            <option key={optionValue} value={optionValue}>
-              {optionLabel}
-            </option>
-          );
-        })}
-      </select>
-    </label>
-  );
-}
-
-function SimpleSelect({
   label,
   value,
   onChange,
@@ -1954,6 +1671,7 @@ function SimpleSelect({
         onChange={(e) => onChange(e.target.value)}
         className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none focus:border-amber-400/40"
       >
+        <option value="">Select</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
@@ -1964,20 +1682,11 @@ function SimpleSelect({
   );
 }
 
-function PrimaryButton({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
+function EmptyState({ text }: { text: string }) {
   return (
-    <button
-      onClick={onClick}
-      className="w-full rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black transition hover:scale-[1.01]"
-    >
-      {children}
-    </button>
+    <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-sm text-zinc-400">
+      {text}
+    </div>
   );
 }
 
@@ -1993,88 +1702,13 @@ function ToggleButton({
   return (
     <button
       onClick={onClick}
-      className={`rounded-2xl border px-4 py-2 text-sm transition ${
+      className={`rounded-2xl border px-4 py-2 text-sm font-semibold ${
         active
-          ? "border-emerald-400/20 bg-emerald-500/20 text-emerald-300"
-          : "border-white/10 bg-white/[0.04] text-white hover:bg-white/[0.07]"
+          ? "border-emerald-500/20 bg-emerald-500/15 text-emerald-300"
+          : "border-white/10 bg-white/[0.05] text-white"
       }`}
     >
       {label}
     </button>
   );
-}
-
-function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-sm text-zinc-400">
-      {text}
-    </div>
-  );
-}
-
-function StatusPill({
-  active,
-  text,
-}: {
-  active: boolean;
-  text: string;
-}) {
-  return (
-    <span
-      className={`rounded-full border px-2.5 py-1 text-[11px] ${
-        active
-          ? "border-emerald-400/20 bg-emerald-500/20 text-emerald-300"
-          : "border-white/10 bg-white/[0.04] text-zinc-400"
-      }`}
-    >
-      {text}
-    </span>
-  );
-}
-
-function StatusStack({
-  row,
-}: {
-  row: { confirmed?: boolean | null; approved?: boolean | null; paid?: boolean | null };
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      <StatusPill active={!!row.confirmed} text="Confirmed" />
-      <StatusPill active={!!row.approved} text="Approved" />
-      <StatusPill active={!!row.paid} text="Paid" />
-    </div>
-  );
-}
-async function geocodeAddress(address: string) {
-  const cleanAddress = address.trim();
-
-  if (!cleanAddress) {
-    return {
-      latitude: null,
-      longitude: null,
-      formatted_address: null,
-    };
-  }
-
-  const response = await fetch("/api/geocode", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      address: cleanAddress,
-    }),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data?.error || "Could not geocode address.");
-  }
-
-  return {
-    latitude: data.latitude as number,
-    longitude: data.longitude as number,
-    formatted_address: data.formatted_address as string,
-  };
 }
