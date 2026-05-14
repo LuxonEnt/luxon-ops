@@ -30,6 +30,23 @@ import {
 
 const COMPANY_LOGO_PATH = "/luxon-logo.png";
 
+const SKILL_OPTIONS = [
+  "A1",
+  "A2",
+  "L1",
+  "L2",
+  "LED Programmer",
+  "LED Tech",
+  "Video Engineer",
+  "Camera Op",
+  "Projectionist",
+  "Stagehand",
+  "RF Tech",
+  "Broadcast Audio",
+  "Lighting Programmer",
+  "Rigger",
+];
+
 type Contractor = {
   id: number;
   user_id?: string | null;
@@ -43,6 +60,8 @@ type Contractor = {
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
   skills?: string[] | null;
+  requested_skills?: string[] | null;
+  approved_skills?: string[] | null;
   rate?: number | null;
   rate_type?: string | null;
 };
@@ -545,6 +564,7 @@ export default function ContractorPage() {
     state: "",
     emergency_contact_name: "",
     emergency_contact_phone: "",
+    requested_skills: [] as string[],
   });
 
   useEffect(() => {
@@ -603,6 +623,7 @@ export default function ContractorPage() {
       state: contractorRow.state || "",
       emergency_contact_name: contractorRow.emergency_contact_name || "",
       emergency_contact_phone: contractorRow.emergency_contact_phone || "",
+      requested_skills: contractorRow.requested_skills || contractorRow.skills || [],
     });
 
     const existingLunchTimes: Record<
@@ -869,6 +890,7 @@ export default function ContractorPage() {
       state: contractor.state || "",
       emergency_contact_name: contractor.emergency_contact_name || "",
       emergency_contact_phone: contractor.emergency_contact_phone || "",
+      requested_skills: contractor.requested_skills || contractor.skills || [],
     });
     setIsEditingProfile(true);
     setMessage("");
@@ -900,6 +922,7 @@ export default function ContractorPage() {
         state: profileForm.state.trim() || null,
         emergency_contact_name: profileForm.emergency_contact_name.trim() || null,
         emergency_contact_phone: profileForm.emergency_contact_phone.trim() || null,
+        requested_skills: profileForm.requested_skills || [],
       })
       .eq("id", contractor.id)
       .select("*")
@@ -921,6 +944,7 @@ export default function ContractorPage() {
       state: data.state || "",
       emergency_contact_name: data.emergency_contact_name || "",
       emergency_contact_phone: data.emergency_contact_phone || "",
+      requested_skills: data.requested_skills || data.skills || [],
     });
     setIsEditingProfile(false);
     setMessage("Profile updated.");
@@ -1982,6 +2006,7 @@ function ProfilePanel({
     state: string;
     emergency_contact_name: string;
     emergency_contact_phone: string;
+    requested_skills: string[];
   };
   setProfileForm: React.Dispatch<
     React.SetStateAction<{
@@ -1992,6 +2017,7 @@ function ProfilePanel({
       state: string;
       emergency_contact_name: string;
       emergency_contact_phone: string;
+      requested_skills: string[];
     }>
   >;
   startEditingProfile: () => void;
@@ -2062,6 +2088,16 @@ function ProfilePanel({
             label="Email"
             value={contractor?.email || "--"}
           />
+          <MiniInfo
+            icon={<ShieldCheck className="h-4 w-4" />}
+            label="Approved Skills"
+            value={(contractor?.approved_skills || []).length ? (contractor?.approved_skills || []).join(", ") : "None approved yet"}
+          />
+          <MiniInfo
+            icon={<Briefcase className="h-4 w-4" />}
+            label="Requested Skills"
+            value={(contractor?.requested_skills || contractor?.skills || []).length ? (contractor?.requested_skills || contractor?.skills || []).join(", ") : "No skills requested"}
+          />
         </div>
       ) : (
         <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -2111,6 +2147,37 @@ function ProfilePanel({
               })
             }
           />
+
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-4 md:col-span-2">
+            <div className="mb-2 text-sm font-semibold text-white">Request Skill Approval</div>
+            <div className="mb-3 text-xs text-zinc-400">Select the skills you want managers to approve for future crew requests.</div>
+            <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+              {SKILL_OPTIONS.map((skill) => {
+                const active = profileForm.requested_skills.includes(skill);
+                return (
+                  <button
+                    key={skill}
+                    type="button"
+                    onClick={() =>
+                      setProfileForm((prev) => ({
+                        ...prev,
+                        requested_skills: active
+                          ? prev.requested_skills.filter((item) => item !== skill)
+                          : [...prev.requested_skills, skill],
+                      }))
+                    }
+                    className={`rounded-2xl border px-3 py-3 text-sm font-semibold ${
+                      active
+                        ? "border-amber-400/30 bg-amber-400/20 text-amber-200"
+                        : "border-white/10 bg-white/[0.04] text-zinc-300"
+                    }`}
+                  >
+                    {skill}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="grid grid-cols-2 gap-3 md:col-span-2">
             <button
