@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import {
+  AlertCircle,
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Clock3,
   DollarSign,
   FileText,
   FolderOpen,
@@ -58,6 +60,8 @@ type Assignment = {
   call_time?: string | null;
   clock_in?: string | null;
   clock_out?: string | null;
+  clock_in_location?: string | null;
+  clock_out_location?: string | null;
   lunch_clock_out?: string | null;
   lunch_clock_in?: string | null;
   break_hours?: number | null;
@@ -69,6 +73,10 @@ type Assignment = {
   manager_approved_hours?: number | null;
   manager_notes?: string | null;
   hours_approved?: boolean | null;
+  manual_time_correction?: boolean | null;
+  time_correction_reason?: string | null;
+  time_corrected_by?: string | null;
+  time_corrected_at?: string | null;
 };
 
 type AssignmentRow = Assignment & {
@@ -631,6 +639,55 @@ export default function ManagerPage() {
     }
 
     setMessage("Assignment updated.");
+    await loadAll();
+  }
+
+  async function saveTimeCorrection(
+    row: AssignmentRow,
+    values: {
+      clockIn: string;
+      lunchOut: string;
+      lunchIn: string;
+      clockOut: string;
+      reason: string;
+    }
+  ) {
+    const reason = values.reason.trim();
+
+    if (!reason) {
+      setMessage("A correction reason is required before saving manual time changes.");
+      return;
+    }
+
+    const correctionStamp = new Date().toISOString();
+    const manualLocationNote = `Manual correction by ${email} at ${new Date().toLocaleString()} | GPS not verified`;
+
+    const clockInChanged = (values.clockIn || null) !== (row.clock_in || null);
+    const clockOutChanged = (values.clockOut || null) !== (row.clock_out || null);
+
+    const { error } = await supabase
+      .from("assignments")
+      .update({
+        clock_in: values.clockIn || null,
+        lunch_clock_out: values.lunchOut || null,
+        lunch_clock_in: values.lunchIn || null,
+        clock_out: values.clockOut || null,
+        clock_in_location: clockInChanged ? manualLocationNote : row.clock_in_location || null,
+        clock_out_location: clockOutChanged ? manualLocationNote : row.clock_out_location || null,
+        manual_time_correction: true,
+        time_correction_reason: reason,
+        time_corrected_by: email,
+        time_corrected_at: correctionStamp,
+        hours_approved: false,
+      })
+      .eq("id", row.id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Manual time correction saved. Review and approve the updated hours before approving payroll.");
     await loadAll();
   }
 
@@ -1336,6 +1393,7 @@ export default function ManagerPage() {
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
                           onDeleteAssignment={deleteAssignment}
+                          onSaveTimeCorrection={saveTimeCorrection}
                         />
                       ))
                     ) : (
@@ -1386,6 +1444,7 @@ export default function ManagerPage() {
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
                           onDeleteAssignment={deleteAssignment}
+                          onSaveTimeCorrection={saveTimeCorrection}
                         />
                       ))
                     ) : (
@@ -1527,6 +1586,7 @@ function ManagerAssignmentCard({
   onApproveHours,
   onUpdateAssignment,
   onDeleteAssignment,
+  onSaveTimeCorrection,
 }: {
   row: AssignmentRow;
   onSaveReview: (
@@ -1537,6 +1597,16 @@ function ManagerAssignmentCard({
   onApproveHours: (row: AssignmentRow) => void;
   onUpdateAssignment: (row: AssignmentRow, updates: Partial<Assignment>) => void;
   onDeleteAssignment: (id: number) => void;
+  onSaveTimeCorrection: (
+    row: AssignmentRow,
+    values: {
+      clockIn: string;
+      lunchOut: string;
+      lunchIn: string;
+      clockOut: string;
+      reason: string;
+    }
+  ) => void;
 }) {
   const [approvedHours, setApprovedHours] = useState(
     row.manager_approved_hours !== null &&
@@ -1545,6 +1615,13 @@ function ManagerAssignmentCard({
       : ""
   );
   const [notes, setNotes] = useState(row.manager_notes || "");
+  const [clockIn, setClockIn] = useState(row.clock_in || "");
+  const [lunchOut, setLunchOut] = useState(row.lunch_clock_out || "");
+  const [lunchIn, setLunchIn] = useState(row.lunch_clock_in || "");
+  const [clockOut, setClockOut] = useState(row.clock_out || "");
+  const [correctionReason, setCorrectionReason] = useState(
+    row.time_correction_reason || ""
+  );
 
   return (
     <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
@@ -1560,6 +1637,12 @@ function ManagerAssignmentCard({
             {dateLabel(row.work_date)} · Call {timeLabel(row.call_time)} · Clock{" "}
             {timeLabel(row.clock_in)} - {timeLabel(row.clock_out)}
           </div>
+          {row.manual_time_correction ? (
+            <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
+              <AlertCircle className="h-3.5 w-3.5" />
+              Manual time correction saved
+            </div>
+          ) : null}
         </div>
 
         <div className="text-left md:text-right">
@@ -1597,6 +1680,45 @@ function ManagerAssignmentCard({
         />
       </div>
 
+      <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+          <Clock3 className="h-4 w-4 text-amber-300" />
+          Time Correction / Audit
+        </div>
+        <div className="mb-4 grid gap-3 md:grid-cols-4">
+          <Field label="Clock In" type="time" value={clockIn} onChange={setClockIn} />
+          <Field label="Lunch Out" type="time" value={lunchOut} onChange={setLunchOut} />
+          <Field label="Lunch In" type="time" value={lunchIn} onChange={setLunchIn} />
+          <Field label="Clock Out" type="time" value={clockOut} onChange={setClockOut} />
+        </div>
+        <TextAreaField
+          label="Correction Reason / Audit Notes"
+          value={correctionReason}
+          onChange={setCorrectionReason}
+        />
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <MiniInfo
+            icon={<MapPin className="h-4 w-4" />}
+            label="Clock In GPS / Audit"
+            value={row.clock_in_location || "No GPS / not clocked in"}
+          />
+          <MiniInfo
+            icon={<MapPin className="h-4 w-4" />}
+            label="Clock Out GPS / Audit"
+            value={row.clock_out_location || "No GPS / not clocked out"}
+          />
+        </div>
+        {row.time_corrected_by || row.time_corrected_at ? (
+          <div className="mt-3 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">
+            Last correction by {row.time_corrected_by || "manager"}
+            {row.time_corrected_at
+              ? ` on ${new Date(row.time_corrected_at).toLocaleString()}`
+              : ""}
+            {row.time_correction_reason ? ` · ${row.time_correction_reason}` : ""}
+          </div>
+        ) : null}
+      </div>
+
       <div className="mt-4 grid gap-3 md:grid-cols-[220px_1fr]">
         <Field
           label="Manager Approved Hours"
@@ -1612,6 +1734,22 @@ function ManagerAssignmentCard({
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          onClick={() =>
+            onSaveTimeCorrection(row, {
+              clockIn,
+              lunchOut,
+              lunchIn,
+              clockOut,
+              reason: correctionReason,
+            })
+          }
+          className="inline-flex items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200"
+        >
+          <Clock3 className="h-4 w-4" />
+          Save Time Correction
+        </button>
+
         <button
           onClick={() => onSaveReview(row, approvedHours, notes)}
           className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
