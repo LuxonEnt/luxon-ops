@@ -17,6 +17,23 @@ import {
   Users,
 } from "lucide-react";
 
+const SKILL_OPTIONS = [
+  "A1",
+  "A2",
+  "L1",
+  "L2",
+  "LED Programmer",
+  "LED Tech",
+  "Video Engineer",
+  "Camera Op",
+  "Projectionist",
+  "Stagehand",
+  "RF Tech",
+  "Broadcast Audio",
+  "Lighting Programmer",
+  "Rigger",
+];
+
 type EventItem = {
   id: number;
   name: string;
@@ -30,6 +47,7 @@ type Contractor = {
   name: string;
   email?: string | null;
   role?: string | null;
+  approved_skills?: string[] | null;
 };
 
 type CrewRequest = {
@@ -46,6 +64,7 @@ type CrewRequest = {
   notes?: string | null;
   status: string;
   selected_contractor_id?: number | null;
+  required_skill?: string | null;
   created_at?: string;
 };
 
@@ -112,6 +131,7 @@ export default function ManagerRequestsPage() {
     event_id: "",
     title: "",
     position: "",
+    required_skill: "",
     work_date: "",
     call_time: "",
     rate: "",
@@ -124,6 +144,7 @@ export default function ManagerRequestsPage() {
     event_id: "",
     contractor_id: "",
     position: "",
+    required_skill: "",
     work_date: "",
     call_time: "",
     rate: "",
@@ -180,7 +201,7 @@ export default function ManagerRequestsPage() {
         .order("start_date", { ascending: false }),
       supabase
         .from("contractors")
-        .select("id,name,email,role")
+        .select("id,name,email,role,approved_skills")
         .order("name", { ascending: true }),
       supabase
         .from("crew_position_requests")
@@ -240,9 +261,10 @@ export default function ManagerRequestsPage() {
     if (
       !requestForm.event_id ||
       !requestForm.title.trim() ||
-      !requestForm.position.trim()
+      !requestForm.position.trim() ||
+      !requestForm.required_skill
     ) {
-      setMessage("Event, title, and position are required.");
+      setMessage("Event, title, position, and required skill are required.");
       return;
     }
 
@@ -250,6 +272,7 @@ export default function ManagerRequestsPage() {
       event_id: Number(requestForm.event_id),
       title: requestForm.title.trim(),
       position: requestForm.position.trim(),
+      required_skill: requestForm.required_skill || null,
       work_date: requestForm.work_date || null,
       call_time: requestForm.call_time || null,
       rate: Number(requestForm.rate || 0),
@@ -268,6 +291,7 @@ export default function ManagerRequestsPage() {
       event_id: "",
       title: "",
       position: "",
+      required_skill: "",
       work_date: "",
       call_time: "",
       rate: "",
@@ -314,6 +338,12 @@ export default function ManagerRequestsPage() {
   }
 
   async function confirmResponder(request: CrewRequest, response: CrewResponse) {
+    const responder = contractorMap[response.contractor_id];
+    if (request.required_skill && !(responder?.approved_skills || []).includes(request.required_skill)) {
+      setMessage("This contractor is not approved for the required skill on this request.");
+      return;
+    }
+
     if (request.filled_slots >= request.slots || request.status === "Filled") {
       setMessage("This request is already filled.");
       return;
@@ -572,6 +602,17 @@ export default function ManagerRequestsPage() {
                       setRequestForm({ ...requestForm, position: v })
                     }
                   />
+                  <SelectField
+                    label="Required Skill"
+                    value={requestForm.required_skill}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, required_skill: v })
+                    }
+                    options={SKILL_OPTIONS.map((skill) => ({
+                      value: skill,
+                      label: skill,
+                    }))}
+                  />
                   <Field
                     label="Slots"
                     type="number"
@@ -763,7 +804,7 @@ export default function ManagerRequestsPage() {
                               {request.title}
                             </div>
                             <div className="text-sm text-zinc-400">
-                              {request.position} ·{" "}
+                              {request.position}{request.required_skill ? ` · ${request.required_skill}` : ""} ·{" "}
                               {eventMap[request.event_id]?.name || "Event"}
                             </div>
                             <div className="mt-1 text-xs text-zinc-500">
@@ -834,6 +875,7 @@ export default function ManagerRequestsPage() {
                                     </div>
                                     <div className="text-sm text-zinc-400">
                                       {contractor?.role || ""}
+                                      {request.required_skill && !(contractor?.approved_skills || []).includes(request.required_skill) ? " · Skill not approved" : ""}
                                       {contractor?.email
                                         ? ` · ${contractor.email}`
                                         : ""}
@@ -854,7 +896,8 @@ export default function ManagerRequestsPage() {
                                         confirmResponder(request, response)
                                       }
                                       disabled={
-                                        request.filled_slots >= request.slots
+                                        request.filled_slots >= request.slots ||
+                                        (!!request.required_skill && !(contractor?.approved_skills || []).includes(request.required_skill))
                                       }
                                       className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black disabled:opacity-50"
                                     >
@@ -896,7 +939,7 @@ export default function ManagerRequestsPage() {
                             {request.title}
                           </div>
                           <div className="text-sm text-zinc-300">
-                            {request.position} ·{" "}
+                            {request.position}{request.required_skill ? ` · ${request.required_skill}` : ""} ·{" "}
                             {eventMap[request.event_id]?.name || "Event"}
                           </div>
                           <div className="text-xs text-zinc-400">
