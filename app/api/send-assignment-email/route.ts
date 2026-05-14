@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 
-type AssignmentEmailPayload = {
+type ScheduleCancelEmailPayload = {
   contractorName?: string;
   contractorEmail?: string;
   eventName?: string;
@@ -12,16 +12,16 @@ type AssignmentEmailPayload = {
   position?: string | null;
   workDate?: string | null;
   callTime?: string | null;
-  rate?: number | string | null;
-  rateType?: string | null;
 };
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const LOGO_URL = "https://luxon-ops.vercel.app/luxon-logo.png";
 const PORTAL_URL = "https://luxon-ops.vercel.app/login";
+
 const FROM_EMAIL =
   "Luxon Entertainment <notifications@mail.luxonentertainment.com>";
+
 const REPLY_TO_EMAIL = "Luxon Entertainment <Luxon.entertainment@gmail.com>";
 
 function escapeHtml(value: string) {
@@ -62,15 +62,6 @@ function timeLabel(value?: string | null) {
   });
 }
 
-function money(value?: number | string | null) {
-  const numericValue = Number(value || 0);
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(Number.isNaN(numericValue) ? 0 : numericValue);
-}
-
 function buildDateRange(start?: string | null, end?: string | null) {
   if (start && end && start !== end) {
     return `${dateLabel(start)} – ${dateLabel(end)}`;
@@ -82,28 +73,26 @@ function buildDateRange(start?: string | null, end?: string | null) {
   return "--";
 }
 
-function buildEmailHtml(payload: AssignmentEmailPayload) {
+function buildEmailHtml(payload: ScheduleCancelEmailPayload) {
   const contractorName = escapeHtml(payload.contractorName || "Contractor");
   const eventName = escapeHtml(payload.eventName || "--");
   const eventDates = escapeHtml(
-    buildDateRange(payload.eventStartDate, payload.eventEndDate)
+    buildDateRange(payload.eventStartDate, payload.eventEndDate),
   );
   const venue = escapeHtml(payload.venue || "--");
   const address = escapeHtml(payload.address || "");
   const position = escapeHtml(payload.position || "--");
   const workDate = escapeHtml(dateLabel(payload.workDate));
   const callTime = escapeHtml(timeLabel(payload.callTime));
-  const rate = escapeHtml(
-    `${money(payload.rate)} / ${payload.rateType || "day"}`
-  );
 
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>You have been selected to work an event</title>
+  <title>IMPORTANT: An Event Has Been Canceled</title>
 </head>
+
 <body style="margin:0; padding:0; background:#f4f4f5; font-family:Arial, Helvetica, sans-serif; color:#111827;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f4f5; padding:24px 12px;">
     <tr>
@@ -117,8 +106,8 @@ function buildEmailHtml(payload: AssignmentEmailPayload) {
                 style="max-width:220px; height:auto; display:block; margin-bottom:26px;"
               />
 
-              <h1 style="margin:0 0 18px 0; font-size:26px; line-height:1.25; color:#111827;">
-                Added to Roster
+              <h1 style="margin:0 0 18px 0; font-size:26px; line-height:1.25; color:#b91c1c;">
+                IMPORTANT: An Event Has Been Canceled
               </h1>
 
               <p style="margin:0 0 18px 0; font-size:16px; line-height:1.6;">
@@ -126,28 +115,44 @@ function buildEmailHtml(payload: AssignmentEmailPayload) {
               </p>
 
               <p style="margin:0 0 22px 0; font-size:16px; line-height:1.6;">
-                We are pleased to inform you that you have been added to the event roster for the following event:
+                We are reaching out to notify you of a change to your scheduled role.
+              </p>
+
+              <p style="margin:0 0 22px 0; font-size:16px; line-height:1.6;">
+                The following position has been canceled:
               </p>
 
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse; margin:0 0 24px 0;">
                 <tr>
                   <td style="padding:14px 0; border-top:1px solid #e5e7eb;">
-                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">Event</div>
-                    <div style="font-size:17px; color:#111827; margin-top:5px;">${eventName}</div>
+                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">
+                      Event
+                    </div>
+                    <div style="font-size:17px; color:#111827; margin-top:5px;">
+                      ${eventName}
+                    </div>
                   </td>
                 </tr>
 
                 <tr>
                   <td style="padding:14px 0; border-top:1px solid #e5e7eb;">
-                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">Dates</div>
-                    <div style="font-size:17px; color:#111827; margin-top:5px;">${eventDates}</div>
+                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">
+                      Dates
+                    </div>
+                    <div style="font-size:17px; color:#111827; margin-top:5px;">
+                      ${eventDates}
+                    </div>
                   </td>
                 </tr>
 
                 <tr>
                   <td style="padding:14px 0; border-top:1px solid #e5e7eb;">
-                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">Venue</div>
-                    <div style="font-size:17px; color:#111827; margin-top:5px;">${venue}</div>
+                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">
+                      Venue
+                    </div>
+                    <div style="font-size:17px; color:#111827; margin-top:5px;">
+                      ${venue}
+                    </div>
                     ${
                       address
                         ? `<div style="font-size:15px; color:#4b5563; margin-top:4px;">${address}</div>`
@@ -158,39 +163,59 @@ function buildEmailHtml(payload: AssignmentEmailPayload) {
 
                 <tr>
                   <td style="padding:14px 0; border-top:1px solid #e5e7eb;">
-                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">Position</div>
-                    <div style="font-size:17px; color:#111827; margin-top:5px;">${position}</div>
+                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">
+                      Position
+                    </div>
+                    <div style="font-size:17px; color:#111827; margin-top:5px;">
+                      ${position}
+                    </div>
                   </td>
                 </tr>
 
                 <tr>
                   <td style="padding:14px 0; border-top:1px solid #e5e7eb;">
-                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">Work Date</div>
-                    <div style="font-size:17px; color:#111827; margin-top:5px;">${workDate}</div>
+                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">
+                      Work Date
+                    </div>
+                    <div style="font-size:17px; color:#111827; margin-top:5px;">
+                      ${workDate}
+                    </div>
                   </td>
                 </tr>
 
                 <tr>
                   <td style="padding:14px 0; border-top:1px solid #e5e7eb;">
-                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">Call Time</div>
-                    <div style="font-size:17px; color:#111827; margin-top:5px;">${callTime}</div>
+                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">
+                      Call Time
+                    </div>
+                    <div style="font-size:17px; color:#111827; margin-top:5px;">
+                      ${callTime}
+                    </div>
                   </td>
                 </tr>
 
                 <tr>
                   <td style="padding:14px 0; border-top:1px solid #e5e7eb; border-bottom:1px solid #e5e7eb;">
-                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">Rate</div>
-                    <div style="font-size:17px; color:#111827; margin-top:5px;">${rate}</div>
+                    <div style="font-size:12px; font-weight:bold; color:#6b7280; text-transform:uppercase; letter-spacing:.06em;">
+                      Status
+                    </div>
+                    <div style="font-size:17px; color:#b91c1c; margin-top:5px; font-weight:bold;">
+                      Canceled
+                    </div>
                   </td>
                 </tr>
               </table>
 
-              <h2 style="margin:0 0 12px 0; font-size:19px; color:#111827;">
-                Confirmation Required
-              </h2>
+              <p style="margin:0 0 18px 0; font-size:16px; line-height:1.6; font-weight:bold; color:#111827;">
+                Please do not report to this position unless you receive a new confirmation from Luxon Entertainment.
+              </p>
 
               <p style="margin:0 0 22px 0; font-size:16px; line-height:1.6;">
-                Please log into the Luxon Ops Contractor Portal to view your assignment and confirm your details.
+                If this position is rescheduled or if another position becomes available, we will send you an updated confirmation through the Luxon Ops Contractor Portal.
+              </p>
+
+              <p style="margin:0 0 22px 0; font-size:16px; line-height:1.6;">
+                You can also log into the portal to review your current schedule:
               </p>
 
               <p style="margin:0 0 28px 0;">
@@ -200,12 +225,12 @@ function buildEmailHtml(payload: AssignmentEmailPayload) {
               </p>
 
               <p style="margin:0 0 20px 0; font-size:15px; line-height:1.6; color:#374151;">
-                If you have any questions, please feel free to contact us at any time at
+                If you have any questions, please contact us at
                 <a href="mailto:Luxon.entertainment@gmail.com" style="color:#111827;">Luxon.entertainment@gmail.com</a>.
               </p>
 
               <p style="margin:0; font-size:15px; line-height:1.6; color:#111827;">
-                Luxon Entertainment LLC.<br />
+                Luxon Entertainment LLC<br />
                 (562) 391-6933<br />
                 15234 Cadwell St.<br />
                 La Puente, CA 91744
@@ -215,7 +240,7 @@ function buildEmailHtml(payload: AssignmentEmailPayload) {
         </table>
 
         <div style="max-width:680px; padding:16px 8px; font-size:12px; line-height:1.5; color:#6b7280;">
-          You are receiving this email because you were scheduled through Luxon Ops.
+          You are receiving this email because your schedule was updated through Luxon Ops.
         </div>
       </td>
     </tr>
@@ -225,13 +250,15 @@ function buildEmailHtml(payload: AssignmentEmailPayload) {
   `;
 }
 
-function buildTextEmail(payload: AssignmentEmailPayload) {
+function buildTextEmail(payload: ScheduleCancelEmailPayload) {
   return `
-Added to Roster
+IMPORTANT: An Event Has Been Canceled
 
 Dear ${payload.contractorName || "Contractor"},
 
-We are pleased to inform you that you have been added to the event roster for the following event:
+We are reaching out to notify you of a change to your scheduled role.
+
+The following position has been canceled:
 
 Event:
 ${payload.eventName || "--"}
@@ -252,17 +279,19 @@ ${dateLabel(payload.workDate)}
 Call Time:
 ${timeLabel(payload.callTime)}
 
-Rate:
-${money(payload.rate)} / ${payload.rateType || "day"}
+Status:
+Canceled
 
-Confirmation Required
+Please do not report to this position unless you receive a new confirmation from Luxon Entertainment.
 
-Please log into the Luxon Ops Contractor Portal to view your assignment and confirm your details:
+If this position is rescheduled or if another position becomes available, we will send you an updated confirmation through the Luxon Ops Contractor Portal.
+
+You can also log into the portal to review your current schedule:
 ${PORTAL_URL}
 
-If you have any questions, please feel free to contact us at any time at Luxon.entertainment@gmail.com.
+If you have any questions, please contact us at Luxon.entertainment@gmail.com.
 
-Luxon Entertainment LLC.
+Luxon Entertainment LLC
 (562) 391-6933
 15234 Cadwell St.
 La Puente, CA 91744
@@ -274,16 +303,16 @@ export async function POST(request: Request) {
     if (!process.env.RESEND_API_KEY) {
       return NextResponse.json(
         { error: "Missing RESEND_API_KEY environment variable." },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
-    const payload = (await request.json()) as AssignmentEmailPayload;
+    const payload = (await request.json()) as ScheduleCancelEmailPayload;
 
     if (!payload.contractorEmail) {
       return NextResponse.json(
         { error: "Missing contractor email." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -291,15 +320,19 @@ export async function POST(request: Request) {
       from: FROM_EMAIL,
       to: [payload.contractorEmail],
       replyTo: REPLY_TO_EMAIL,
-      subject: "You have been selected to work an event",
+      subject: "IMPORTANT: An Event Has Been Canceled",
       html: buildEmailHtml(payload),
       text: buildTextEmail(payload),
     });
 
     if (emailResult.error) {
       return NextResponse.json(
-        { error: emailResult.error.message || "Email failed to send." },
-        { status: 500 }
+        {
+          error:
+            emailResult.error.message ||
+            "Cancellation email failed to send.",
+        },
+        { status: 500 },
       );
     }
 
@@ -309,8 +342,8 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     return NextResponse.json(
-      { error: error?.message || "Unexpected email error." },
-      { status: 500 }
+      { error: error?.message || "Unexpected cancellation email error." },
+      { status: 500 },
     );
   }
 }
