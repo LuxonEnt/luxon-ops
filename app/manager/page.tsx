@@ -320,6 +320,38 @@ async function sendAssignmentConfirmationEmail(payload: AssignmentEmailPayload) 
   }
 }
 
+async function sendScheduleCancellationEmail(payload: AssignmentEmailPayload) {
+  if (!payload.contractorEmail) {
+    return { ok: false, error: "Contractor email is missing." };
+  }
+
+  try {
+    const response = await fetch("/api/send-schedule-update-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: data?.error || "Cancellation email could not be sent.",
+      };
+    }
+
+    return { ok: true, error: null };
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: error?.message || "Cancellation email could not be sent.",
+    };
+  }
+}
+
 export default function ManagerPage() {
   const [activeTab, setActiveTab] = useState<TabName>("Overview");
   const [status, setStatus] = useState("Checking access...");
@@ -920,6 +952,48 @@ export default function ManagerPage() {
     await loadAll();
   }
 
+  async function cancelAndNotifyAssignment(row: AssignmentRow) {
+    const ok = window.confirm(
+      `Cancel this position and notify the contractor?\n\n${row.contractor?.name || "Contractor"}\n${row.position || "Assignment"}\n${row.event?.name || "Event"}\n\nThis will email the contractor that the event/position has been canceled, then remove the assignment from the portal.`,
+    );
+
+    if (!ok) return;
+
+    setMessage("Sending cancellation email...");
+
+    const emailResult = await sendScheduleCancellationEmail({
+      contractorName: row.contractor?.name || null,
+      contractorEmail: row.contractor?.email || null,
+      eventName: row.event?.name || null,
+      eventStartDate: row.event?.start_date || null,
+      eventEndDate: row.event?.end_date || null,
+      venue: row.event?.venue || null,
+      address: row.event?.address || null,
+      position: row.position || null,
+      workDate: row.work_date || null,
+      callTime: row.call_time || null,
+      rate: row.rate || 0,
+      rateType: row.rate_type || "day",
+    });
+
+    if (!emailResult.ok) {
+      setMessage(`Cancellation email was not sent: ${emailResult.error}`);
+      return;
+    }
+
+    const { error } = await supabase.from("assignments").delete().eq("id", row.id);
+
+    if (error) {
+      setMessage(
+        `Cancellation email sent, but the assignment could not be removed: ${error.message}`,
+      );
+      return;
+    }
+
+    setMessage("Cancellation email sent. Assignment removed from schedule.");
+    await loadAll();
+  }
+
   async function saveManagerReview(
     row: AssignmentRow,
     managerApprovedHours: string,
@@ -1299,6 +1373,7 @@ export default function ManagerPage() {
                         isOpen={expandedScheduleEventIds[group.key] ?? true}
                         onToggle={() => toggleScheduleGroup(group.key)}
                         onDeleteAssignment={deleteAssignment}
+                        onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
                         onSaveReview={saveManagerReview}
                         onApproveHours={approveHours}
                         onUpdateAssignment={updateAssignment}
@@ -1639,6 +1714,7 @@ export default function ManagerPage() {
                           isOpen={expandedAssignmentEventIds[group.key] ?? true}
                           onToggle={() => toggleAssignmentGroup(group.key)}
                           onDeleteAssignment={deleteAssignment}
+                        onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
@@ -1693,6 +1769,7 @@ export default function ManagerPage() {
                           isOpen={expandedPayrollEventIds[group.key] ?? true}
                           onToggle={() => togglePayrollGroup(group.key)}
                           onDeleteAssignment={deleteAssignment}
+                        onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
@@ -1725,6 +1802,7 @@ export default function ManagerPage() {
                         onApproveHours={approveHours}
                         onUpdateAssignment={updateAssignment}
                         onDeleteAssignment={deleteAssignment}
+                        onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
                         onSaveTimeCorrection={saveTimeCorrection}
                       />
                     ))
@@ -1842,6 +1920,7 @@ function EventAssignmentGroupCard({
   onApproveHours,
   onUpdateAssignment,
   onDeleteAssignment,
+  onCancelAndNotifyAssignment,
   onSaveTimeCorrection,
 }: {
   group: EventAssignmentGroup;
@@ -1859,6 +1938,7 @@ function EventAssignmentGroupCard({
     updates: Partial<Assignment>,
   ) => void;
   onDeleteAssignment: (id: number) => void;
+  onCancelAndNotifyAssignment: (row: AssignmentRow) => void;
   onSaveTimeCorrection: (
     row: AssignmentRow,
     values: {
@@ -1976,6 +2056,14 @@ function EventAssignmentGroupCard({
                       </div>
 
                       <button
+                        onClick={() => onCancelAndNotifyAssignment(row)}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-300"
+                      >
+                        <AlertCircle className="h-4 w-4" />
+                        Cancel + Notify Contractor
+                      </button>
+
+                      <button
                         onClick={() => onDeleteAssignment(row.id)}
                         className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
                       >
@@ -1997,6 +2085,7 @@ function EventAssignmentGroupCard({
                   onApproveHours={onApproveHours}
                   onUpdateAssignment={onUpdateAssignment}
                   onDeleteAssignment={onDeleteAssignment}
+                  onCancelAndNotifyAssignment={onCancelAndNotifyAssignment}
                   onSaveTimeCorrection={onSaveTimeCorrection}
                 />
               ))}
@@ -2014,6 +2103,7 @@ function ManagerAssignmentCard({
   onApproveHours,
   onUpdateAssignment,
   onDeleteAssignment,
+  onCancelAndNotifyAssignment,
   onSaveTimeCorrection,
 }: {
   row: AssignmentRow;
@@ -2028,6 +2118,7 @@ function ManagerAssignmentCard({
     updates: Partial<Assignment>,
   ) => void;
   onDeleteAssignment: (id: number) => void;
+  onCancelAndNotifyAssignment: (row: AssignmentRow) => void;
   onSaveTimeCorrection: (
     row: AssignmentRow,
     values: {
@@ -2272,6 +2363,14 @@ function ManagerAssignmentCard({
           label={row.paid ? "Paid" : "Mark Paid"}
           onClick={() => onUpdateAssignment(row, { paid: !row.paid })}
         />
+
+        <button
+          onClick={() => onCancelAndNotifyAssignment(row)}
+          className="inline-flex items-center gap-2 rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-300"
+        >
+          <AlertCircle className="h-4 w-4" />
+          Cancel + Notify Contractor
+        </button>
 
         <button
           onClick={() => onDeleteAssignment(row.id)}
