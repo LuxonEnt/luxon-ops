@@ -522,7 +522,8 @@ function buildInvoiceHtml(
     </div>
 
     <div class="footer">
-      This record is generated from the contractor portal for your files.
+      This record is generated from the contractor portal for your files.<br />
+      Payment Terms: All Luxon Entertainment shows are paid on Net 30 terms unless otherwise agreed in writing.
     </div>
   </div>
 </body>
@@ -2404,6 +2405,8 @@ function InvoiceModal({
 
           <div className="mt-8 text-xs text-slate-500">
             This record is generated from the contractor portal for your files.
+            <br />
+            Payment Terms: All Luxon Entertainment shows are paid on Net 30 terms unless otherwise agreed in writing.
           </div>
         </div>
       </div>
