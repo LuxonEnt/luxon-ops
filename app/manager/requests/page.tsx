@@ -40,6 +40,8 @@ type EventItem = {
   venue?: string | null;
   address?: string | null;
   client?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
 };
 
 type Contractor = {
@@ -113,6 +115,53 @@ function timeLabel(value?: string | null) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+type AssignmentEmailPayload = {
+  contractorName?: string | null;
+  contractorEmail?: string | null;
+  eventName?: string | null;
+  eventStartDate?: string | null;
+  eventEndDate?: string | null;
+  venue?: string | null;
+  address?: string | null;
+  position?: string | null;
+  workDate?: string | null;
+  callTime?: string | null;
+  rate?: number | string | null;
+  rateType?: string | null;
+};
+
+async function sendAssignmentConfirmationEmail(payload: AssignmentEmailPayload) {
+  if (!payload.contractorEmail) {
+    return { ok: false, error: "Contractor email is missing." };
+  }
+
+  try {
+    const response = await fetch("/api/send-assignment-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: data?.error || "Email could not be sent.",
+      };
+    }
+
+    return { ok: true, error: null };
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: error?.message || "Email could not be sent.",
+    };
+  }
 }
 
 export default function ManagerRequestsPage() {
@@ -333,7 +382,33 @@ export default function ManagerRequestsPage() {
       return;
     }
 
-    setMessage("Contractor confirmed and assigned to event.");
+    const selectedContractor = contractors.find(
+      (contractor) => contractor.id === Number(quickAssignForm.contractor_id),
+    );
+    const selectedEvent = events.find(
+      (event) => event.id === Number(quickAssignForm.event_id),
+    );
+
+    const emailResult = await sendAssignmentConfirmationEmail({
+      contractorName: selectedContractor?.name || null,
+      contractorEmail: selectedContractor?.email || null,
+      eventName: selectedEvent?.name || null,
+      eventStartDate: selectedEvent?.start_date || null,
+      eventEndDate: selectedEvent?.end_date || null,
+      venue: selectedEvent?.venue || null,
+      address: selectedEvent?.address || null,
+      position: quickAssignForm.position.trim(),
+      workDate: quickAssignForm.work_date || null,
+      callTime: quickAssignForm.call_time || null,
+      rate: Number(quickAssignForm.rate || 0),
+      rateType: quickAssignForm.rate_type || "day",
+    });
+
+    setMessage(
+      emailResult.ok
+        ? "Contractor confirmed and assigned to event. Email confirmation sent."
+        : `Contractor confirmed and assigned to event, but email confirmation was not sent: ${emailResult.error}`,
+    );
     await loadAll();
   }
 
@@ -397,7 +472,29 @@ export default function ManagerRequestsPage() {
       return;
     }
 
-    setMessage("Responder confirmed and request marked filled.");
+    const selectedContractor = contractorMap[response.contractor_id];
+    const selectedEvent = eventMap[request.event_id];
+
+    const emailResult = await sendAssignmentConfirmationEmail({
+      contractorName: selectedContractor?.name || null,
+      contractorEmail: selectedContractor?.email || null,
+      eventName: selectedEvent?.name || null,
+      eventStartDate: selectedEvent?.start_date || null,
+      eventEndDate: selectedEvent?.end_date || null,
+      venue: selectedEvent?.venue || null,
+      address: selectedEvent?.address || null,
+      position: request.position,
+      workDate: request.work_date || null,
+      callTime: request.call_time || null,
+      rate: Number(request.rate || 0),
+      rateType: request.rate_type || "day",
+    });
+
+    setMessage(
+      emailResult.ok
+        ? "Responder confirmed and request marked filled. Email confirmation sent."
+        : `Responder confirmed and request marked filled, but email confirmation was not sent: ${emailResult.error}`,
+    );
     await loadAll();
   }
 
