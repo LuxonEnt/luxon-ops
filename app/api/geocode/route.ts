@@ -3,13 +3,13 @@ import { NextResponse } from "next/server";
 type GoogleGeocodeResult = {
   status: string;
   results?: Array<{
+    formatted_address?: string;
     geometry?: {
       location?: {
         lat: number;
         lng: number;
       };
     };
-    formatted_address?: string;
   }>;
   error_message?: string;
 };
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Missing GOOGLE_MAPS_API_KEY environment variable." },
+        { error: "Missing GOOGLE_MAPS_API_KEY in Vercel environment variables." },
         { status: 500 }
       );
     }
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
         {
           error:
             data.error_message ||
-            `Could not find GPS coordinates for this address. Google status: ${data.status}`,
+            `Could not geocode address. Google status: ${data.status}`,
         },
         { status: 400 }
       );
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
 
     if (!location) {
       return NextResponse.json(
-        { error: "Google returned no GPS location for this address." },
+        { error: "Google returned no latitude/longitude." },
         { status: 400 }
       );
     }
