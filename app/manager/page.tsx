@@ -49,6 +49,8 @@ type Contractor = {
   state?: string | null;
   rate?: number | null;
   rate_type?: string | null;
+  requested_skills?: string[] | null;
+  approved_skills?: string[] | null;
 };
 
 type Assignment = {
@@ -115,6 +117,23 @@ type TabName =
   | "Payroll"
   | "Invoices"
   | "Documents";
+
+const SKILL_OPTIONS = [
+  "A1",
+  "A2",
+  "L1",
+  "L2",
+  "LED Programmer",
+  "LED Tech",
+  "Video Engineer",
+  "Camera Op",
+  "Projectionist",
+  "Stagehand",
+  "RF Tech",
+  "Broadcast Audio",
+  "Lighting Programmer",
+  "Rigger",
+];
 
 const TABS: TabName[] = [
   "Overview",
@@ -533,6 +552,8 @@ export default function ManagerPage() {
       company: contractorForm.company.trim() || null,
       city: contractorForm.city.trim() || null,
       state: contractorForm.state.trim() || null,
+      requested_skills: [],
+      approved_skills: [],
     });
 
     if (error) {
@@ -569,6 +590,8 @@ export default function ManagerPage() {
         company: row.company?.trim() || null,
         city: row.city?.trim() || null,
         state: row.state?.trim() || null,
+        requested_skills: row.requested_skills || [],
+        approved_skills: row.approved_skills || [],
       })
       .eq("id", row.id);
 
@@ -1966,6 +1989,52 @@ function EditableContractorCard({
             { value: "hour", label: "hour" },
           ]}
         />
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+        <div className="mb-2 text-sm font-semibold text-white">Requested Skills</div>
+        <div className="mb-4 flex flex-wrap gap-2">
+          {(row.requested_skills || []).length ? (
+            (row.requested_skills || []).map((skill) => (
+              <span
+                key={skill}
+                className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs text-amber-200"
+              >
+                {skill}
+              </span>
+            ))
+          ) : (
+            <span className="text-sm text-zinc-500">No requested skills yet.</span>
+          )}
+        </div>
+
+        <div className="mb-2 text-sm font-semibold text-white">Manager Approved Skills</div>
+        <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+          {SKILL_OPTIONS.map((skill) => {
+            const active = (row.approved_skills || []).includes(skill);
+            return (
+              <button
+                key={skill}
+                type="button"
+                onClick={() =>
+                  setRow((prev) => ({
+                    ...prev,
+                    approved_skills: active
+                      ? (prev.approved_skills || []).filter((item) => item !== skill)
+                      : [...(prev.approved_skills || []), skill],
+                  }))
+                }
+                className={`rounded-2xl border px-3 py-3 text-sm font-semibold ${
+                  active
+                    ? "border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
+                    : "border-white/10 bg-white/[0.04] text-zinc-300"
+                }`}
+              >
+                {skill}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <button
