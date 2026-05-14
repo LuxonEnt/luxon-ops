@@ -80,6 +80,7 @@ type Assignment = {
   time_correction_reason?: string | null;
   time_corrected_by?: string | null;
   time_corrected_at?: string | null;
+  assignment_display_title?: string | null;
 };
 
 type AssignmentRow = Assignment & {
@@ -198,7 +199,7 @@ function hoursBetween(
   start?: string | null,
   end?: string | null,
   lunchOut?: string | null,
-  lunchIn?: string | null
+  lunchIn?: string | null,
 ) {
   if (!start || !end) return 0;
 
@@ -271,9 +272,15 @@ export default function ManagerPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
-  const [expandedScheduleEventIds, setExpandedScheduleEventIds] = useState<Record<string, boolean>>({});
-  const [expandedAssignmentEventIds, setExpandedAssignmentEventIds] = useState<Record<string, boolean>>({});
-  const [expandedPayrollEventIds, setExpandedPayrollEventIds] = useState<Record<string, boolean>>({});
+  const [expandedScheduleEventIds, setExpandedScheduleEventIds] = useState<
+    Record<string, boolean>
+  >({});
+  const [expandedAssignmentEventIds, setExpandedAssignmentEventIds] = useState<
+    Record<string, boolean>
+  >({});
+  const [expandedPayrollEventIds, setExpandedPayrollEventIds] = useState<
+    Record<string, boolean>
+  >({});
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
@@ -358,9 +365,18 @@ export default function ManagerPage() {
       assignmentsResult,
       availabilityResult,
     ] = await Promise.all([
-      supabase.from("events").select("*").order("start_date", { ascending: false }),
-      supabase.from("contractors").select("*").order("name", { ascending: true }),
-      supabase.from("assignments").select("*").order("work_date", { ascending: false }),
+      supabase
+        .from("events")
+        .select("*")
+        .order("start_date", { ascending: false }),
+      supabase
+        .from("contractors")
+        .select("*")
+        .order("name", { ascending: true }),
+      supabase
+        .from("assignments")
+        .select("*")
+        .order("work_date", { ascending: false }),
       supabase
         .from("contractor_availability")
         .select("*")
@@ -378,7 +394,7 @@ export default function ManagerPage() {
           contractorsResult.error?.message ||
           assignmentsResult.error?.message ||
           availabilityResult.error?.message ||
-          "Could not load manager data."
+          "Could not load manager data.",
       );
       setLoading(false);
       return;
@@ -623,7 +639,7 @@ export default function ManagerPage() {
 
   async function deleteContractor(row: Contractor) {
     const ok = window.confirm(
-      `Delete contractor profile?\n\n${row.name}\n${row.email || ""}\n\nThis will remove the contractor profile, assignments, availability submissions, crew request responses, and uploaded contractor documents from the portal. This does not delete the Supabase Auth login account.`
+      `Delete contractor profile?\n\n${row.name}\n${row.email || ""}\n\nThis will remove the contractor profile, assignments, availability submissions, crew request responses, and uploaded contractor documents from the portal. This does not delete the Supabase Auth login account.`,
     );
 
     if (!ok) return;
@@ -729,7 +745,10 @@ export default function ManagerPage() {
     await loadAll();
   }
 
-  async function updateAssignment(row: Assignment, updates: Partial<Assignment>) {
+  async function updateAssignment(
+    row: Assignment,
+    updates: Partial<Assignment>,
+  ) {
     const { error } = await supabase
       .from("assignments")
       .update(updates)
@@ -752,12 +771,14 @@ export default function ManagerPage() {
       lunchIn: string;
       clockOut: string;
       reason: string;
-    }
+    },
   ) {
     const reason = values.reason.trim();
 
     if (!reason) {
-      setMessage("A correction reason is required before saving manual time changes.");
+      setMessage(
+        "A correction reason is required before saving manual time changes.",
+      );
       return;
     }
 
@@ -765,7 +786,8 @@ export default function ManagerPage() {
     const manualLocationNote = `Manual correction by ${email} at ${new Date().toLocaleString()} | GPS not verified`;
 
     const clockInChanged = (values.clockIn || null) !== (row.clock_in || null);
-    const clockOutChanged = (values.clockOut || null) !== (row.clock_out || null);
+    const clockOutChanged =
+      (values.clockOut || null) !== (row.clock_out || null);
 
     const { error } = await supabase
       .from("assignments")
@@ -774,8 +796,12 @@ export default function ManagerPage() {
         lunch_clock_out: values.lunchOut || null,
         lunch_clock_in: values.lunchIn || null,
         clock_out: values.clockOut || null,
-        clock_in_location: clockInChanged ? manualLocationNote : row.clock_in_location || null,
-        clock_out_location: clockOutChanged ? manualLocationNote : row.clock_out_location || null,
+        clock_in_location: clockInChanged
+          ? manualLocationNote
+          : row.clock_in_location || null,
+        clock_out_location: clockOutChanged
+          ? manualLocationNote
+          : row.clock_out_location || null,
         manual_time_correction: true,
         time_correction_reason: reason,
         time_corrected_by: email,
@@ -789,13 +815,15 @@ export default function ManagerPage() {
       return;
     }
 
-    setMessage("Manual time correction saved. Review and approve the updated hours before approving payroll.");
+    setMessage(
+      "Manual time correction saved. Review and approve the updated hours before approving payroll.",
+    );
     await loadAll();
   }
 
   async function deleteAssignment(id: number) {
     const ok = window.confirm(
-      "Delete this assignment? This will remove it from Schedule Board, Assignments, Payroll, Invoices, and the contractor portal."
+      "Delete this assignment? This will remove it from Schedule Board, Assignments, Payroll, Invoices, and the contractor portal.",
     );
 
     if (!ok) return;
@@ -814,7 +842,7 @@ export default function ManagerPage() {
   async function saveManagerReview(
     row: AssignmentRow,
     managerApprovedHours: string,
-    managerNotes: string
+    managerNotes: string,
   ) {
     const cleanHours =
       managerApprovedHours.trim() === ""
@@ -902,7 +930,7 @@ export default function ManagerPage() {
         row.clock_in,
         row.clock_out,
         row.lunch_clock_out,
-        row.lunch_clock_in
+        row.lunch_clock_in,
       );
 
       const billedHours =
@@ -932,13 +960,13 @@ export default function ManagerPage() {
       event.address || ""
     }`
       .toLowerCase()
-      .includes(search.toLowerCase())
+      .includes(search.toLowerCase()),
   );
 
   const filteredContractors = contractors.filter((contractor) =>
     `${contractor.name} ${contractor.email || ""} ${contractor.role || ""}`
       .toLowerCase()
-      .includes(search.toLowerCase())
+      .includes(search.toLowerCase()),
   );
 
   const filteredAssignments = assignmentRows.filter((row) =>
@@ -946,7 +974,7 @@ export default function ManagerPage() {
       row.event?.name || ""
     }`
       .toLowerCase()
-      .includes(search.toLowerCase())
+      .includes(search.toLowerCase()),
   );
 
   const assignmentGroups: EventAssignmentGroup[] = useMemo(() => {
@@ -1016,7 +1044,7 @@ export default function ManagerPage() {
     .filter((row) => row.approved)
     .reduce((sum, row) => sum + row.total, 0);
   const unpaidCount = assignmentRows.filter(
-    (row) => row.approved && !row.paid
+    (row) => row.approved && !row.paid,
   ).length;
 
   if (status !== "allowed") {
@@ -1221,7 +1249,9 @@ export default function ManagerPage() {
                     <Field
                       label="Client"
                       value={eventForm.client}
-                      onChange={(v) => setEventForm({ ...eventForm, client: v })}
+                      onChange={(v) =>
+                        setEventForm({ ...eventForm, client: v })
+                      }
                     />
                     <Field
                       label="Venue"
@@ -1231,7 +1261,9 @@ export default function ManagerPage() {
                     <Field
                       label="Address"
                       value={eventForm.address}
-                      onChange={(v) => setEventForm({ ...eventForm, address: v })}
+                      onChange={(v) =>
+                        setEventForm({ ...eventForm, address: v })
+                      }
                     />
                     <Field
                       label="Start Date"
@@ -1245,12 +1277,16 @@ export default function ManagerPage() {
                       label="End Date"
                       type="date"
                       value={eventForm.end_date}
-                      onChange={(v) => setEventForm({ ...eventForm, end_date: v })}
+                      onChange={(v) =>
+                        setEventForm({ ...eventForm, end_date: v })
+                      }
                     />
                     <SelectField
                       label="Status"
                       value={eventForm.status}
-                      onChange={(v) => setEventForm({ ...eventForm, status: v })}
+                      onChange={(v) =>
+                        setEventForm({ ...eventForm, status: v })
+                      }
                       options={[
                         { value: "Scheduled", label: "Scheduled" },
                         { value: "Completed", label: "Completed" },
@@ -1734,10 +1770,13 @@ function EventAssignmentGroupCard({
   onSaveReview: (
     row: AssignmentRow,
     managerApprovedHours: string,
-    managerNotes: string
+    managerNotes: string,
   ) => void;
   onApproveHours: (row: AssignmentRow) => void;
-  onUpdateAssignment: (row: AssignmentRow, updates: Partial<Assignment>) => void;
+  onUpdateAssignment: (
+    row: AssignmentRow,
+    updates: Partial<Assignment>,
+  ) => void;
   onDeleteAssignment: (id: number) => void;
   onSaveTimeCorrection: (
     row: AssignmentRow,
@@ -1747,13 +1786,15 @@ function EventAssignmentGroupCard({
       lunchIn: string;
       clockOut: string;
       reason: string;
-    }
+    },
   ) => void;
 }) {
   const event = group.event;
   const eventName = event?.name || "Unassigned Event";
   const eventDateRange =
-    group.earliestDate && group.latestDate && group.earliestDate !== group.latestDate
+    group.earliestDate &&
+    group.latestDate &&
+    group.earliestDate !== group.latestDate
       ? `${dateLabel(group.earliestDate)} - ${dateLabel(group.latestDate)}`
       : dateLabel(group.earliestDate);
 
@@ -1785,7 +1826,8 @@ function EventAssignmentGroupCard({
           <div className="text-left md:text-right">
             <div className="font-semibold text-amber-300">{eventDateRange}</div>
             <div className="text-xs text-zinc-500">
-              {group.confirmedCount} confirmed · {group.approvedCount} approved · {group.paidCount} paid · {money(group.totalValue)}
+              {group.confirmedCount} confirmed · {group.approvedCount} approved
+              · {group.paidCount} paid · {money(group.totalValue)}
             </div>
           </div>
           <ChevronDown
@@ -1835,7 +1877,9 @@ function EventAssignmentGroupCard({
                         {row.contractor?.name || "Contractor"}
                       </div>
                       <div className="mt-1 text-xs text-zinc-500">
-                        {dateLabel(row.work_date)} · Call {timeLabel(row.call_time)} · Clock {timeLabel(row.clock_in)} - {timeLabel(row.clock_out)}
+                        {dateLabel(row.work_date)} · Call{" "}
+                        {timeLabel(row.call_time)} · Clock{" "}
+                        {timeLabel(row.clock_in)} - {timeLabel(row.clock_out)}
                       </div>
                     </div>
 
@@ -1845,7 +1889,8 @@ function EventAssignmentGroupCard({
                           {money(row.total)}
                         </div>
                         <div className="text-xs text-zinc-500">
-                          Tracked {row.trackedHours.toFixed(2)} hrs · Approved {row.billedHours.toFixed(2)} hrs
+                          Tracked {row.trackedHours.toFixed(2)} hrs · Approved{" "}
+                          {row.billedHours.toFixed(2)} hrs
                         </div>
                       </div>
 
@@ -1894,10 +1939,13 @@ function ManagerAssignmentCard({
   onSaveReview: (
     row: AssignmentRow,
     managerApprovedHours: string,
-    managerNotes: string
+    managerNotes: string,
   ) => void;
   onApproveHours: (row: AssignmentRow) => void;
-  onUpdateAssignment: (row: AssignmentRow, updates: Partial<Assignment>) => void;
+  onUpdateAssignment: (
+    row: AssignmentRow,
+    updates: Partial<Assignment>,
+  ) => void;
   onDeleteAssignment: (id: number) => void;
   onSaveTimeCorrection: (
     row: AssignmentRow,
@@ -1907,23 +1955,27 @@ function ManagerAssignmentCard({
       lunchIn: string;
       clockOut: string;
       reason: string;
-    }
+    },
   ) => void;
 }) {
   const [approvedHours, setApprovedHours] = useState(
     row.manager_approved_hours !== null &&
       row.manager_approved_hours !== undefined
       ? String(row.manager_approved_hours)
-      : ""
+      : "",
   );
   const [notes, setNotes] = useState(row.manager_notes || "");
+  const defaultDisplayTitle = `Invoice Record #${row.id} · ${row.position || "Assignment"}`;
+  const [displayTitle, setDisplayTitle] = useState(
+    row.assignment_display_title || defaultDisplayTitle,
+  );
   const [positionText, setPositionText] = useState(row.position || "");
   const [clockIn, setClockIn] = useState(row.clock_in || "");
   const [lunchOut, setLunchOut] = useState(row.lunch_clock_out || "");
   const [lunchIn, setLunchIn] = useState(row.lunch_clock_in || "");
   const [clockOut, setClockOut] = useState(row.clock_out || "");
   const [correctionReason, setCorrectionReason] = useState(
-    row.time_correction_reason || ""
+    row.time_correction_reason || "",
   );
 
   return (
@@ -1931,10 +1983,11 @@ function ManagerAssignmentCard({
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="text-lg font-semibold">
-            Invoice Record #{row.id} · {positionText || "Assignment"}
+            {displayTitle || defaultDisplayTitle}
           </div>
           <div className="text-sm text-zinc-400">
-            {row.contractor?.name || "Contractor"} · {row.event?.name || "Event"}
+            {row.contractor?.name || "Contractor"} ·{" "}
+            {row.event?.name || "Event"}
           </div>
           <div className="mt-1 text-xs text-zinc-500">
             {dateLabel(row.work_date)} · Call {timeLabel(row.call_time)} · Clock{" "}
@@ -1960,7 +2013,26 @@ function ManagerAssignmentCard({
 
       <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
         <Field
-          label="Assignment Text / Position"
+          label="Custom Header / Invoice Title"
+          value={displayTitle}
+          onChange={setDisplayTitle}
+        />
+        <button
+          onClick={() =>
+            onUpdateAssignment(row, {
+              assignment_display_title: displayTitle.trim() || null,
+            })
+          }
+          className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+        >
+          <Save className="h-4 w-4" />
+          Save Header
+        </button>
+      </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+        <Field
+          label="Assignment Position"
           value={positionText}
           onChange={setPositionText}
         />
@@ -1973,7 +2045,7 @@ function ManagerAssignmentCard({
           className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
         >
           <Save className="h-4 w-4" />
-          Save Text
+          Save Position
         </button>
       </div>
 
@@ -2008,10 +2080,30 @@ function ManagerAssignmentCard({
           Time Correction / Audit
         </div>
         <div className="mb-4 grid gap-3 md:grid-cols-4">
-          <Field label="Clock In" type="time" value={clockIn} onChange={setClockIn} />
-          <Field label="Lunch Out" type="time" value={lunchOut} onChange={setLunchOut} />
-          <Field label="Lunch In" type="time" value={lunchIn} onChange={setLunchIn} />
-          <Field label="Clock Out" type="time" value={clockOut} onChange={setClockOut} />
+          <Field
+            label="Clock In"
+            type="time"
+            value={clockIn}
+            onChange={setClockIn}
+          />
+          <Field
+            label="Lunch Out"
+            type="time"
+            value={lunchOut}
+            onChange={setLunchOut}
+          />
+          <Field
+            label="Lunch In"
+            type="time"
+            value={lunchIn}
+            onChange={setLunchIn}
+          />
+          <Field
+            label="Clock Out"
+            type="time"
+            value={clockOut}
+            onChange={setClockOut}
+          />
         </div>
         <TextAreaField
           label="Correction Reason / Audit Notes"
@@ -2036,7 +2128,9 @@ function ManagerAssignmentCard({
             {row.time_corrected_at
               ? ` on ${new Date(row.time_corrected_at).toLocaleString()}`
               : ""}
-            {row.time_correction_reason ? ` · ${row.time_correction_reason}` : ""}
+            {row.time_correction_reason
+              ? ` · ${row.time_correction_reason}`
+              : ""}
           </div>
         ) : null}
       </div>
@@ -2293,7 +2387,9 @@ function EditableContractorCard({
       </div>
 
       <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-        <div className="mb-2 text-sm font-semibold text-white">Requested Skills</div>
+        <div className="mb-2 text-sm font-semibold text-white">
+          Requested Skills
+        </div>
         <div className="mb-4 flex flex-wrap gap-2">
           {(row.requested_skills || []).length ? (
             (row.requested_skills || []).map((skill) => (
@@ -2305,11 +2401,15 @@ function EditableContractorCard({
               </span>
             ))
           ) : (
-            <span className="text-sm text-zinc-500">No requested skills yet.</span>
+            <span className="text-sm text-zinc-500">
+              No requested skills yet.
+            </span>
           )}
         </div>
 
-        <div className="mb-2 text-sm font-semibold text-white">Manager Approved Skills</div>
+        <div className="mb-2 text-sm font-semibold text-white">
+          Manager Approved Skills
+        </div>
         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
           {SKILL_OPTIONS.map((skill) => {
             const active = (row.approved_skills || []).includes(skill);
@@ -2321,7 +2421,9 @@ function EditableContractorCard({
                   setRow((prev) => ({
                     ...prev,
                     approved_skills: active
-                      ? (prev.approved_skills || []).filter((item) => item !== skill)
+                      ? (prev.approved_skills || []).filter(
+                          (item) => item !== skill,
+                        )
                       : [...(prev.approved_skills || []), skill],
                   }))
                 }
@@ -2377,7 +2479,9 @@ function SectionTitle({
 }) {
   return (
     <div className="flex items-start gap-3">
-      <div className="rounded-2xl bg-amber-400/10 p-3 text-amber-300">{icon}</div>
+      <div className="rounded-2xl bg-amber-400/10 p-3 text-amber-300">
+        {icon}
+      </div>
       <div>
         <h2 className="text-2xl font-semibold">{title}</h2>
         <p className="text-sm text-zinc-400">{subtitle}</p>
