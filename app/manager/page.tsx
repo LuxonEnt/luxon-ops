@@ -6,6 +6,7 @@ import {
   AlertCircle,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ClipboardList,
   Clock3,
   DollarSign,
@@ -87,6 +88,19 @@ type AssignmentRow = Assignment & {
   total: number;
   event?: EventItem;
   contractor?: Contractor;
+};
+
+type EventAssignmentGroup = {
+  key: string;
+  event?: EventItem;
+  rows: AssignmentRow[];
+  crewCount: number;
+  confirmedCount: number;
+  approvedCount: number;
+  paidCount: number;
+  totalValue: number;
+  earliestDate?: string | null;
+  latestDate?: string | null;
 };
 
 type AvailabilityItem = {
@@ -257,6 +271,8 @@ export default function ManagerPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [expandedScheduleEventIds, setExpandedScheduleEventIds] = useState<Record<string, boolean>>({});
+  const [expandedAssignmentEventIds, setExpandedAssignmentEventIds] = useState<Record<string, boolean>>({});
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
@@ -932,6 +948,61 @@ export default function ManagerPage() {
       .includes(search.toLowerCase())
   );
 
+  const assignmentGroups: EventAssignmentGroup[] = useMemo(() => {
+    const groupMap: Record<string, AssignmentRow[]> = {};
+
+    filteredAssignments.forEach((row) => {
+      const key = row.event_id ? String(row.event_id) : `no-event-${row.id}`;
+      if (!groupMap[key]) groupMap[key] = [];
+      groupMap[key].push(row);
+    });
+
+    return Object.entries(groupMap)
+      .map(([key, rows]) => {
+        const sortedRows = [...rows].sort((a, b) => {
+          const dateA = `${a.work_date || "9999-12-31"} ${a.call_time || "99:99"}`;
+          const dateB = `${b.work_date || "9999-12-31"} ${b.call_time || "99:99"}`;
+          return dateA.localeCompare(dateB);
+        });
+
+        const dates = sortedRows
+          .map((row) => row.work_date)
+          .filter(Boolean) as string[];
+
+        return {
+          key,
+          event: sortedRows[0]?.event,
+          rows: sortedRows,
+          crewCount: sortedRows.length,
+          confirmedCount: sortedRows.filter((row) => row.confirmed).length,
+          approvedCount: sortedRows.filter((row) => row.approved).length,
+          paidCount: sortedRows.filter((row) => row.paid).length,
+          totalValue: sortedRows.reduce((sum, row) => sum + row.total, 0),
+          earliestDate: dates.length ? dates.sort()[0] : null,
+          latestDate: dates.length ? dates.sort()[dates.length - 1] : null,
+        };
+      })
+      .sort((a, b) => {
+        const dateA = a.earliestDate || "9999-12-31";
+        const dateB = b.earliestDate || "9999-12-31";
+        return dateA.localeCompare(dateB);
+      });
+  }, [filteredAssignments]);
+
+  function toggleScheduleGroup(key: string) {
+    setExpandedScheduleEventIds((prev) => ({
+      ...prev,
+      [key]: !(prev[key] ?? true),
+    }));
+  }
+
+  function toggleAssignmentGroup(key: string) {
+    setExpandedAssignmentEventIds((prev) => ({
+      ...prev,
+      [key]: !(prev[key] ?? true),
+    }));
+  }
+
   const totalPayroll = assignmentRows.reduce((sum, row) => sum + row.total, 0);
   const approvedPayroll = assignmentRows
     .filter((row) => row.approved)
@@ -1098,60 +1169,24 @@ export default function ManagerPage() {
                 <SectionTitle
                   icon={<CalendarDays className="h-5 w-5" />}
                   title="Schedule Board"
-                  subtitle="Confirmed assignments by date"
+                  subtitle="Assignments grouped by event for a cleaner crew overview"
                 />
 
-                <div className="mt-5 space-y-3">
-                  {filteredAssignments.length ? (
-                    filteredAssignments.map((row) => (
-                      <div
-                        key={row.id}
-                        className="rounded-2xl border border-white/10 bg-black/25 p-4"
-                      >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <div className="font-semibold">
-                              {row.position || "Assignment"}
-                            </div>
-                            <div className="text-sm text-zinc-400">
-                              {row.contractor?.name || "Contractor"} ·{" "}
-                              {row.event?.name || "Event"}
-                            </div>
-                            <div className="mt-1 text-xs text-zinc-500">
-                              {row.event?.venue || ""}{" "}
-                              {row.event?.address ? `· ${row.event.address}` : ""}
-                            </div>
-                            <div className="mt-1 text-xs text-zinc-500">
-                              {dateLabel(row.work_date)} · Call{" "}
-                              {timeLabel(row.call_time)} · Clock{" "}
-                              {timeLabel(row.clock_in)} -{" "}
-                              {timeLabel(row.clock_out)}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col gap-3 md:items-end">
-                            <div className="text-left md:text-right">
-                              <div className="font-semibold text-amber-300">
-                                {dateLabel(row.work_date)} ·{" "}
-                                {timeLabel(row.call_time)}
-                              </div>
-                              <div className="text-xs text-zinc-500">
-                                Tracked {row.trackedHours.toFixed(2)} hrs ·
-                                Approved {row.billedHours.toFixed(2)} hrs ·{" "}
-                                {money(row.total)}
-                              </div>
-                            </div>
-
-                            <button
-                              onClick={() => deleteAssignment(row.id)}
-                              className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Delete Assignment
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                <div className="mt-5 space-y-4">
+                  {assignmentGroups.length ? (
+                    assignmentGroups.map((group) => (
+                      <EventAssignmentGroupCard
+                        key={group.key}
+                        group={group}
+                        mode="schedule"
+                        isOpen={expandedScheduleEventIds[group.key] ?? true}
+                        onToggle={() => toggleScheduleGroup(group.key)}
+                        onDeleteAssignment={deleteAssignment}
+                        onSaveReview={saveManagerReview}
+                        onApproveHours={approveHours}
+                        onUpdateAssignment={updateAssignment}
+                        onSaveTimeCorrection={saveTimeCorrection}
+                      />
                     ))
                   ) : (
                     <EmptyState text="No assignments yet." />
@@ -1469,16 +1504,19 @@ export default function ManagerPage() {
                     subtitle="Approve hours, approve invoice, mark paid, delete assignment, and review clock-in/out"
                   />
 
-                  <div className="mt-5 space-y-3">
-                    {filteredAssignments.length ? (
-                      filteredAssignments.map((row) => (
-                        <ManagerAssignmentCard
-                          key={row.id}
-                          row={row}
+                  <div className="mt-5 space-y-4">
+                    {assignmentGroups.length ? (
+                      assignmentGroups.map((group) => (
+                        <EventAssignmentGroupCard
+                          key={group.key}
+                          group={group}
+                          mode="full"
+                          isOpen={expandedAssignmentEventIds[group.key] ?? true}
+                          onToggle={() => toggleAssignmentGroup(group.key)}
+                          onDeleteAssignment={deleteAssignment}
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
-                          onDeleteAssignment={deleteAssignment}
                           onSaveTimeCorrection={saveTimeCorrection}
                         />
                       ))
@@ -1664,6 +1702,172 @@ export default function ManagerPage() {
         )}
       </div>
     </main>
+  );
+}
+
+function EventAssignmentGroupCard({
+  group,
+  mode,
+  isOpen,
+  onToggle,
+  onSaveReview,
+  onApproveHours,
+  onUpdateAssignment,
+  onDeleteAssignment,
+  onSaveTimeCorrection,
+}: {
+  group: EventAssignmentGroup;
+  mode: "schedule" | "full";
+  isOpen: boolean;
+  onToggle: () => void;
+  onSaveReview: (
+    row: AssignmentRow,
+    managerApprovedHours: string,
+    managerNotes: string
+  ) => void;
+  onApproveHours: (row: AssignmentRow) => void;
+  onUpdateAssignment: (row: AssignmentRow, updates: Partial<Assignment>) => void;
+  onDeleteAssignment: (id: number) => void;
+  onSaveTimeCorrection: (
+    row: AssignmentRow,
+    values: {
+      clockIn: string;
+      lunchOut: string;
+      lunchIn: string;
+      clockOut: string;
+      reason: string;
+    }
+  ) => void;
+}) {
+  const event = group.event;
+  const eventName = event?.name || "Unassigned Event";
+  const eventDateRange =
+    group.earliestDate && group.latestDate && group.earliestDate !== group.latestDate
+      ? `${dateLabel(group.earliestDate)} - ${dateLabel(group.latestDate)}`
+      : dateLabel(group.earliestDate);
+
+  return (
+    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-black/25">
+      <button
+        onClick={onToggle}
+        className="flex w-full flex-col gap-4 p-5 text-left md:flex-row md:items-start md:justify-between"
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-xl font-semibold text-white">{eventName}</div>
+            <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
+              {group.crewCount} crew
+            </span>
+          </div>
+
+          <div className="mt-1 text-sm text-zinc-400">
+            {event?.client || "No client listed"}
+            {event?.venue ? ` · ${event.venue}` : ""}
+          </div>
+
+          <div className="mt-1 text-xs text-zinc-500">
+            {event?.address || "No address listed"}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-3 md:justify-end">
+          <div className="text-left md:text-right">
+            <div className="font-semibold text-amber-300">{eventDateRange}</div>
+            <div className="text-xs text-zinc-500">
+              {group.confirmedCount} confirmed · {group.approvedCount} approved · {group.paidCount} paid · {money(group.totalValue)}
+            </div>
+          </div>
+          <ChevronDown
+            className={`h-5 w-5 text-zinc-400 transition ${isOpen ? "rotate-180" : ""}`}
+          />
+        </div>
+      </button>
+
+      {isOpen ? (
+        <div className="border-t border-white/10 p-5 pt-4">
+          <div className="mb-4 grid gap-3 md:grid-cols-4">
+            <MiniInfo
+              icon={<Users className="h-4 w-4" />}
+              label="Crew Confirmed"
+              value={`${group.confirmedCount} of ${group.crewCount}`}
+            />
+            <MiniInfo
+              icon={<MapPin className="h-4 w-4" />}
+              label="Address"
+              value={event?.address || "--"}
+            />
+            <MiniInfo
+              icon={<CalendarDays className="h-4 w-4" />}
+              label="Event Dates"
+              value={eventDateRange}
+            />
+            <MiniInfo
+              icon={<DollarSign className="h-4 w-4" />}
+              label="Total Value"
+              value={money(group.totalValue)}
+            />
+          </div>
+
+          {mode === "schedule" ? (
+            <div className="space-y-3">
+              {group.rows.map((row) => (
+                <div
+                  key={row.id}
+                  className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="font-semibold text-white">
+                        {row.position || "Assignment"}
+                      </div>
+                      <div className="text-sm text-zinc-400">
+                        {row.contractor?.name || "Contractor"}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {dateLabel(row.work_date)} · Call {timeLabel(row.call_time)} · Clock {timeLabel(row.clock_in)} - {timeLabel(row.clock_out)}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-3 md:items-end">
+                      <div className="text-left md:text-right">
+                        <div className="font-semibold text-amber-300">
+                          {money(row.total)}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          Tracked {row.trackedHours.toFixed(2)} hrs · Approved {row.billedHours.toFixed(2)} hrs
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => onDeleteAssignment(row.id)}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete Assignment
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {group.rows.map((row) => (
+                <ManagerAssignmentCard
+                  key={row.id}
+                  row={row}
+                  onSaveReview={onSaveReview}
+                  onApproveHours={onApproveHours}
+                  onUpdateAssignment={onUpdateAssignment}
+                  onDeleteAssignment={onDeleteAssignment}
+                  onSaveTimeCorrection={onSaveTimeCorrection}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
