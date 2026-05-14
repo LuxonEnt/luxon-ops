@@ -10,6 +10,8 @@ import {
   LogOut,
   Sparkles,
   XCircle,
+  RefreshCw,
+  Edit3,
 } from "lucide-react";
 
 type Contractor = {
@@ -17,7 +19,6 @@ type Contractor = {
   user_id: string;
   name: string;
   email?: string | null;
-  approved_skills?: string[] | null;
 };
 
 type EventItem = {
@@ -40,7 +41,6 @@ type CrewRequest = {
   filled_slots: number;
   notes?: string | null;
   status: string;
-  required_skill?: string | null;
 };
 
 type CrewResponse = {
@@ -69,12 +69,60 @@ function dateLabel(value?: string | null) {
 
 function timeLabel(value?: string | null) {
   if (!value) return "--";
+
   const clean = String(value).slice(0, 5);
   const [h, m] = clean.split(":").map(Number);
+
+  if (Number.isNaN(h) || Number.isNaN(m)) return value;
+
   return new Date(2026, 0, 1, h, m).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function responseLabel(status?: string | null) {
+  if (!status) return "No response yet";
+  if (status === "available") return "Applied / Available";
+  if (status === "unavailable") return "Responded Unavailable";
+  if (status === "confirmed") return "Confirmed by Manager";
+  return status;
+}
+
+function responseDescription(status?: string | null) {
+  if (!status) {
+    return "You have not responded to this position yet.";
+  }
+
+  if (status === "available") {
+    return "You applied for this position and marked yourself available. You can still change your availability below.";
+  }
+
+  if (status === "unavailable") {
+    return "You responded that you are unavailable. You can still change your availability below.";
+  }
+
+  if (status === "confirmed") {
+    return "You have been confirmed by the manager for this position.";
+  }
+
+  return "Your response has been saved.";
+}
+
+function responseBadgeClasses(status?: string | null) {
+  if (status === "available") {
+    return "border-emerald-500/30 bg-emerald-500/15 text-emerald-300";
+  }
+
+  if (status === "confirmed") {
+    return "border-amber-400/40 bg-amber-400/20 text-amber-200";
+  }
+
+  if (status === "unavailable") {
+    return "border-red-500/30 bg-red-500/15 text-red-300";
+  }
+
+  return "border-white/10 bg-white/[0.05] text-zinc-300";
 }
 
 export default function ContractorRequestsPage() {
@@ -85,7 +133,7 @@ export default function ContractorRequestsPage() {
   const [requests, setRequests] = useState<CrewRequest[]>([]);
   const [responses, setResponses] = useState<CrewResponse[]>([]);
   const [notesByRequest, setNotesByRequest] = useState<Record<number, string>>(
-    {}
+    {},
   );
   const [savingRequestId, setSavingRequestId] = useState<number | null>(null);
 
@@ -102,7 +150,7 @@ export default function ContractorRequestsPage() {
 
       const { data: contractorRow, error } = await supabase
         .from("contractors")
-        .select("id,user_id,name,email,approved_skills")
+        .select("id,user_id,name,email")
         .eq("user_id", session.user.id)
         .maybeSingle();
 
@@ -112,13 +160,13 @@ export default function ContractorRequestsPage() {
       }
 
       setContractor(contractorRow);
-      await loadAll(contractorRow.id, contractorRow.approved_skills || []);
+      await loadAll(contractorRow.id);
     }
 
     void boot();
   }, []);
 
-  async function loadAll(contractorId: number, approvedSkills: string[] = contractor?.approved_skills || []) {
+  async function loadAll(contractorId: number) {
     setLoading(true);
     setMessage("");
 
@@ -142,16 +190,17 @@ export default function ContractorRequestsPage() {
     ]);
 
     if (requestsError || responsesError || eventsError) {
-      setMessage("Could not load open requests.");
+      setMessage(
+        requestsError?.message ||
+          responsesError?.message ||
+          eventsError?.message ||
+          "Could not load open requests.",
+      );
       setLoading(false);
       return;
     }
 
-    const visibleRequests = (requestsData || []).filter((request) =>
-      !request.required_skill || approvedSkills.includes(request.required_skill)
-    );
-
-    setRequests(visibleRequests);
+    setRequests(requestsData || []);
     setResponses(responsesData || []);
     setEvents(eventsData || []);
 
@@ -164,6 +213,11 @@ export default function ContractorRequestsPage() {
     setLoading(false);
   }
 
+  async function refreshPage() {
+    if (!contractor) return;
+    await loadAll(contractor.id);
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
     window.location.href = "/login";
@@ -171,7 +225,7 @@ export default function ContractorRequestsPage() {
 
   async function respondToRequest(
     requestId: number,
-    responseStatus: "available" | "unavailable"
+    responseStatus: "available" | "unavailable",
   ) {
     if (!contractor) return;
 
@@ -188,7 +242,7 @@ export default function ContractorRequestsPage() {
         },
         {
           onConflict: "request_id,contractor_id",
-        }
+        },
       );
 
       if (error) {
@@ -196,8 +250,13 @@ export default function ContractorRequestsPage() {
         return;
       }
 
-      setMessage("Availability response sent.");
-      await loadAll(contractor.id, contractor.approved_skills || []);
+      setMessage(
+        responseStatus === "available"
+          ? "You applied and marked yourself available for this position."
+          : "Your response was updated to unavailable.",
+      );
+
+      await loadAll(contractor.id);
     } finally {
       setSavingRequestId(null);
     }
@@ -219,6 +278,33 @@ export default function ContractorRequestsPage() {
     return map;
   }, [responses]);
 
+  const appliedRequests = requests.filter((request) => {
+    const response = responseMap[request.id];
+    return response?.response_status === "available";
+  });
+
+  const unavailableRequests = requests.filter((request) => {
+    const response = responseMap[request.id];
+    return response?.response_status === "unavailable";
+  });
+
+  const openNoResponseRequests = requests.filter((request) => {
+    const response = responseMap[request.id];
+    return !response;
+  });
+
+  const confirmedRequests = requests.filter((request) => {
+    const response = responseMap[request.id];
+    return response?.response_status === "confirmed";
+  });
+
+  const sortedRequests = [
+    ...confirmedRequests,
+    ...appliedRequests,
+    ...openNoResponseRequests,
+    ...unavailableRequests,
+  ];
+
   if (loading) {
     return (
       <main className="min-h-screen bg-[#050505] p-8 text-white">
@@ -234,28 +320,37 @@ export default function ContractorRequestsPage() {
         <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-yellow-300/5 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto max-w-6xl px-6 py-8">
+      <div className="relative mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
         <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs text-amber-200">
               <Sparkles className="h-3.5 w-3.5" />
               Luxon Entertainment
             </div>
-            <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
+            <h1 className="text-3xl font-bold tracking-tight md:text-5xl">
               Open Position Requests
             </h1>
             <p className="mt-2 text-zinc-400">
-              {contractor?.name} · Respond available or unavailable
+              {contractor?.name} · Apply or update your availability
             </p>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={refreshPage}
+              className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
+            >
+              <RefreshCw className="mr-2 inline h-4 w-4" />
+              Refresh
+            </button>
+
             <a
               href="/contractor"
               className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
             >
               Back to Contractor
             </a>
+
             <button
               onClick={signOut}
               className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white"
@@ -266,6 +361,29 @@ export default function ContractorRequestsPage() {
           </div>
         </div>
 
+        <div className="mb-6 grid gap-3 md:grid-cols-4">
+          <MetricCard
+            label="Open"
+            value={String(openNoResponseRequests.length)}
+            sublabel="Need your response"
+          />
+          <MetricCard
+            label="Applied"
+            value={String(appliedRequests.length)}
+            sublabel="You marked available"
+          />
+          <MetricCard
+            label="Unavailable"
+            value={String(unavailableRequests.length)}
+            sublabel="You declined"
+          />
+          <MetricCard
+            label="Confirmed"
+            value={String(confirmedRequests.length)}
+            sublabel="Manager confirmed"
+          />
+        </div>
+
         {message && (
           <div className="mb-6 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
             {message}
@@ -273,21 +391,63 @@ export default function ContractorRequestsPage() {
         )}
 
         <div className="space-y-4">
-          {requests.length ? (
-            requests.map((request) => {
+          {sortedRequests.length ? (
+            sortedRequests.map((request) => {
               const myResponse = responseMap[request.id];
               const event = eventMap[request.event_id];
+              const isSaving = savingRequestId === request.id;
+              const isAvailable = myResponse?.response_status === "available";
+              const isUnavailable =
+                myResponse?.response_status === "unavailable";
+              const isConfirmed = myResponse?.response_status === "confirmed";
 
               return (
                 <section
                   key={request.id}
-                  className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl"
+                  className={`rounded-[28px] border p-5 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl md:p-6 ${
+                    isAvailable
+                      ? "border-emerald-500/30 bg-emerald-500/[0.08]"
+                      : isUnavailable
+                        ? "border-red-500/25 bg-red-500/[0.06]"
+                        : isConfirmed
+                          ? "border-amber-400/30 bg-amber-400/[0.08]"
+                          : "border-white/10 bg-white/[0.04]"
+                  }`}
                 >
                   <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
-                      <h2 className="text-2xl font-semibold">{request.title}</h2>
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${responseBadgeClasses(
+                            myResponse?.response_status,
+                          )}`}
+                        >
+                          {isAvailable || isConfirmed ? (
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                          ) : isUnavailable ? (
+                            <XCircle className="h-3.5 w-3.5" />
+                          ) : (
+                            <Edit3 className="h-3.5 w-3.5" />
+                          )}
+                          {responseLabel(myResponse?.response_status)}
+                        </span>
+
+                        {myResponse ? (
+                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-zinc-400">
+                            You already responded
+                          </span>
+                        ) : (
+                          <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs text-amber-200">
+                            Response needed
+                          </span>
+                        )}
+                      </div>
+
+                      <h2 className="text-2xl font-semibold">
+                        {request.title}
+                      </h2>
                       <p className="text-zinc-400">
-                        {request.position} · {event?.name || "Event"}{request.required_skill ? ` · ${request.required_skill}` : ""}
+                        {request.position} · {event?.name || "Event"}
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
                         {event?.venue || ""}
@@ -295,7 +455,7 @@ export default function ContractorRequestsPage() {
                       </p>
                     </div>
 
-                    <div className="text-right">
+                    <div className="text-left md:text-right">
                       <div className="text-lg font-semibold text-amber-300">
                         {money(Number(request.rate || 0))} /{" "}
                         {request.rate_type || "day"}
@@ -306,7 +466,21 @@ export default function ContractorRequestsPage() {
                     </div>
                   </div>
 
-                  <div className="mb-4 grid gap-3 md:grid-cols-5">
+                  <div
+                    className={`mb-4 rounded-2xl border p-4 text-sm ${
+                      isAvailable
+                        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100"
+                        : isUnavailable
+                          ? "border-red-500/20 bg-red-500/10 text-red-100"
+                          : isConfirmed
+                            ? "border-amber-400/20 bg-amber-400/10 text-amber-100"
+                            : "border-white/10 bg-black/20 text-zinc-300"
+                    }`}
+                  >
+                    {responseDescription(myResponse?.response_status)}
+                  </div>
+
+                  <div className="mb-4 grid gap-3 md:grid-cols-4">
                     <MiniInfo
                       icon={<CalendarDays className="h-4 w-4" />}
                       label="Work Date"
@@ -319,20 +493,19 @@ export default function ContractorRequestsPage() {
                     />
                     <MiniInfo
                       icon={<DollarSign className="h-4 w-4" />}
-                      label="Status"
+                      label="Request Status"
                       value={request.status}
                     />
                     <MiniInfo
                       icon={
-                        myResponse?.response_status === "available" ||
-                        myResponse?.response_status === "confirmed" ? (
+                        isAvailable || isConfirmed ? (
                           <CheckCircle2 className="h-4 w-4" />
                         ) : (
                           <XCircle className="h-4 w-4" />
                         )
                       }
                       label="My Response"
-                      value={myResponse?.response_status || "No response yet"}
+                      value={responseLabel(myResponse?.response_status)}
                     />
                   </div>
 
@@ -354,26 +527,48 @@ export default function ContractorRequestsPage() {
                           [request.id]: e.target.value,
                         }))
                       }
-                      className="min-h-[90px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-white outline-none focus:border-amber-400/40"
+                      placeholder="Optional note. Example: I am available after 2 PM, I can drive, I have forklift certification, etc."
+                      className="min-h-[90px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-[16px] text-white outline-none focus:border-amber-400/40"
                     />
                   </label>
 
-                  <div className="mt-4 flex flex-wrap gap-3">
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <button
                       onClick={() => respondToRequest(request.id, "available")}
-                      disabled={savingRequestId === request.id}
-                      className="rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-black disabled:opacity-60"
+                      disabled={isSaving}
+                      className={`min-h-[54px] rounded-2xl px-4 py-3 font-semibold disabled:opacity-60 ${
+                        isAvailable
+                          ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-200"
+                          : "bg-emerald-500 text-black"
+                      }`}
                     >
-                      I’m Available
+                      {isSaving
+                        ? "Saving..."
+                        : isAvailable
+                          ? "Applied / Available"
+                          : myResponse
+                            ? "Change to Available"
+                            : "I’m Available / Apply"}
                     </button>
+
                     <button
                       onClick={() =>
                         respondToRequest(request.id, "unavailable")
                       }
-                      disabled={savingRequestId === request.id}
-                      className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 font-semibold text-red-200 disabled:opacity-60"
+                      disabled={isSaving}
+                      className={`min-h-[54px] rounded-2xl px-4 py-3 font-semibold disabled:opacity-60 ${
+                        isUnavailable
+                          ? "border border-red-400/30 bg-red-500/20 text-red-200"
+                          : "border border-red-400/20 bg-red-500/10 text-red-200"
+                      }`}
                     >
-                      I’m Unavailable
+                      {isSaving
+                        ? "Saving..."
+                        : isUnavailable
+                          ? "Marked Unavailable"
+                          : myResponse
+                            ? "Change to Unavailable"
+                            : "I’m Unavailable"}
                     </button>
                   </div>
                 </section>
@@ -387,6 +582,24 @@ export default function ContractorRequestsPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  sublabel,
+}: {
+  label: string;
+  value: string;
+  sublabel: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl">
+      <div className="text-sm text-zinc-500">{label}</div>
+      <div className="mt-1 text-3xl font-bold text-white">{value}</div>
+      <div className="mt-1 text-xs text-zinc-500">{sublabel}</div>
+    </div>
   );
 }
 
