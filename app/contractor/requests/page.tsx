@@ -17,6 +17,7 @@ type Contractor = {
   user_id: string;
   name: string;
   email?: string | null;
+  approved_skills?: string[] | null;
 };
 
 type EventItem = {
@@ -39,6 +40,7 @@ type CrewRequest = {
   filled_slots: number;
   notes?: string | null;
   status: string;
+  required_skill?: string | null;
 };
 
 type CrewResponse = {
@@ -100,7 +102,7 @@ export default function ContractorRequestsPage() {
 
       const { data: contractorRow, error } = await supabase
         .from("contractors")
-        .select("id,user_id,name,email")
+        .select("id,user_id,name,email,approved_skills")
         .eq("user_id", session.user.id)
         .maybeSingle();
 
@@ -110,13 +112,13 @@ export default function ContractorRequestsPage() {
       }
 
       setContractor(contractorRow);
-      await loadAll(contractorRow.id);
+      await loadAll(contractorRow.id, contractorRow.approved_skills || []);
     }
 
     void boot();
   }, []);
 
-  async function loadAll(contractorId: number) {
+  async function loadAll(contractorId: number, approvedSkills: string[] = contractor?.approved_skills || []) {
     setLoading(true);
     setMessage("");
 
@@ -145,7 +147,11 @@ export default function ContractorRequestsPage() {
       return;
     }
 
-    setRequests(requestsData || []);
+    const visibleRequests = (requestsData || []).filter((request) =>
+      !request.required_skill || approvedSkills.includes(request.required_skill)
+    );
+
+    setRequests(visibleRequests);
     setResponses(responsesData || []);
     setEvents(eventsData || []);
 
@@ -191,7 +197,7 @@ export default function ContractorRequestsPage() {
       }
 
       setMessage("Availability response sent.");
-      await loadAll(contractor.id);
+      await loadAll(contractor.id, contractor.approved_skills || []);
     } finally {
       setSavingRequestId(null);
     }
@@ -281,7 +287,7 @@ export default function ContractorRequestsPage() {
                     <div>
                       <h2 className="text-2xl font-semibold">{request.title}</h2>
                       <p className="text-zinc-400">
-                        {request.position} · {event?.name || "Event"}
+                        {request.position} · {event?.name || "Event"}{request.required_skill ? ` · ${request.required_skill}` : ""}
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
                         {event?.venue || ""}
@@ -300,7 +306,7 @@ export default function ContractorRequestsPage() {
                     </div>
                   </div>
 
-                  <div className="mb-4 grid gap-3 md:grid-cols-4">
+                  <div className="mb-4 grid gap-3 md:grid-cols-5">
                     <MiniInfo
                       icon={<CalendarDays className="h-4 w-4" />}
                       label="Work Date"
