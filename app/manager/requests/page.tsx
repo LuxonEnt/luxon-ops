@@ -90,6 +90,43 @@ type AvailabilityItem = {
   created_at?: string;
 };
 
+type AssignmentEmailPayload = {
+  contractorName?: string | null;
+  contractorEmail?: string | null;
+  eventName?: string | null;
+  eventStartDate?: string | null;
+  eventEndDate?: string | null;
+  venue?: string | null;
+  address?: string | null;
+  position?: string | null;
+  workDate?: string | null;
+  callTime?: string | null;
+  rate?: number | string | null;
+  rateType?: string | null;
+};
+
+type OpportunityEmailRecipient = {
+  contractorName?: string | null;
+  contractorEmail?: string | null;
+};
+
+type OpportunityEmailPayload = {
+  recipients: OpportunityEmailRecipient[];
+  eventName?: string | null;
+  eventStartDate?: string | null;
+  eventEndDate?: string | null;
+  venue?: string | null;
+  address?: string | null;
+  requestTitle?: string | null;
+  position?: string | null;
+  requiredSkill?: string | null;
+  workDate?: string | null;
+  callTime?: string | null;
+  rate?: number | string | null;
+  rateType?: string | null;
+  notes?: string | null;
+};
+
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -116,21 +153,6 @@ function timeLabel(value?: string | null) {
     minute: "2-digit",
   });
 }
-
-type AssignmentEmailPayload = {
-  contractorName?: string | null;
-  contractorEmail?: string | null;
-  eventName?: string | null;
-  eventStartDate?: string | null;
-  eventEndDate?: string | null;
-  venue?: string | null;
-  address?: string | null;
-  position?: string | null;
-  workDate?: string | null;
-  callTime?: string | null;
-  rate?: number | string | null;
-  rateType?: string | null;
-};
 
 async function sendAssignmentConfirmationEmail(payload: AssignmentEmailPayload) {
   if (!payload.contractorEmail) {
@@ -160,6 +182,55 @@ async function sendAssignmentConfirmationEmail(payload: AssignmentEmailPayload) 
     return {
       ok: false,
       error: error?.message || "Email could not be sent.",
+    };
+  }
+}
+
+async function sendOpportunityAvailableEmail(payload: OpportunityEmailPayload) {
+  const cleanRecipients = payload.recipients.filter(
+    (recipient) => recipient.contractorEmail,
+  );
+
+  if (!cleanRecipients.length) {
+    return {
+      ok: true,
+      sentCount: 0,
+      error: null,
+    };
+  }
+
+  try {
+    const response = await fetch("/api/send-opportunity-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...payload,
+        recipients: cleanRecipients,
+      }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        sentCount: 0,
+        error: data?.error || "Opportunity emails could not be sent.",
+      };
+    }
+
+    return {
+      ok: true,
+      sentCount: Number(data?.sentCount || 0),
+      error: null,
+    };
+  } catch (error: any) {
+    return {
+      ok: false,
+      sentCount: 0,
+      error: error?.message || "Opportunity emails could not be sent.",
     };
   }
 }
@@ -246,7 +317,7 @@ export default function ManagerRequestsPage() {
     ] = await Promise.all([
       supabase
         .from("events")
-        .select("*")
+        .select("id,name,venue,address,client,start_date,end_date")
         .order("start_date", { ascending: false }),
       supabase
         .from("contractors")
@@ -279,7 +350,7 @@ export default function ManagerRequestsPage() {
           requestsError?.message ||
           responsesError?.message ||
           availabilityError?.message ||
-          "Could not load request management data."
+          "Could not load request management data.",
       );
       setLoading(false);
       return;
@@ -336,6 +407,37 @@ export default function ManagerRequestsPage() {
       return;
     }
 
+    const selectedEvent = events.find(
+      (event) => event.id === Number(requestForm.event_id),
+    );
+
+    const matchingContractors = contractors.filter((contractor) => {
+      const approvedSkills = contractor.approved_skills || [];
+      return (
+        !!contractor.email && approvedSkills.includes(requestForm.required_skill)
+      );
+    });
+
+    const emailResult = await sendOpportunityAvailableEmail({
+      recipients: matchingContractors.map((contractor) => ({
+        contractorName: contractor.name,
+        contractorEmail: contractor.email || null,
+      })),
+      eventName: selectedEvent?.name || null,
+      eventStartDate: selectedEvent?.start_date || null,
+      eventEndDate: selectedEvent?.end_date || null,
+      venue: selectedEvent?.venue || null,
+      address: selectedEvent?.address || null,
+      requestTitle: requestForm.title.trim(),
+      position: requestForm.position.trim(),
+      requiredSkill: requestForm.required_skill || null,
+      workDate: requestForm.work_date || null,
+      callTime: requestForm.call_time || null,
+      rate: Number(requestForm.rate || 0),
+      rateType: requestForm.rate_type || "day",
+      notes: requestForm.notes.trim() || null,
+    });
+
     setRequestForm({
       event_id: "",
       title: "",
@@ -349,7 +451,16 @@ export default function ManagerRequestsPage() {
       notes: "",
     });
 
-    setMessage("Availability request created and published.");
+    if (emailResult.ok) {
+      setMessage(
+        `Availability request created and published. Opportunity email sent to ${emailResult.sentCount} matching contractor(s).`,
+      );
+    } else {
+      setMessage(
+        `Availability request created and published, but opportunity emails were not sent: ${emailResult.error}`,
+      );
+    }
+
     await loadAll();
   }
 
@@ -414,8 +525,14 @@ export default function ManagerRequestsPage() {
 
   async function confirmResponder(request: CrewRequest, response: CrewResponse) {
     const responder = contractorMap[response.contractor_id];
-    if (request.required_skill && !(responder?.approved_skills || []).includes(request.required_skill)) {
-      setMessage("This contractor is not approved for the required skill on this request.");
+
+    if (
+      request.required_skill &&
+      !(responder?.approved_skills || []).includes(request.required_skill)
+    ) {
+      setMessage(
+        "This contractor is not approved for the required skill on this request.",
+      );
       return;
     }
 
@@ -500,7 +617,7 @@ export default function ManagerRequestsPage() {
 
   async function deleteRequest(request: CrewRequest) {
     const ok = window.confirm(
-      `Delete this filled request?\n\n${request.title}\n${request.position}\n\nThis removes the posting and all responses from the request list. It will not delete any assignment already created.`
+      `Delete this filled request?\n\n${request.title}\n${request.position}\n\nThis removes the posting and all responses from the request list. It will not delete any assignment already created.`,
     );
 
     if (!ok) return;
@@ -563,7 +680,9 @@ export default function ManagerRequestsPage() {
   }, [responses]);
 
   const openRequests = requests.filter((request) => request.status !== "Filled");
-  const filledRequests = requests.filter((request) => request.status === "Filled");
+  const filledRequests = requests.filter(
+    (request) => request.status === "Filled",
+  );
 
   if (status !== "allowed") {
     return (
@@ -671,7 +790,7 @@ export default function ManagerRequestsPage() {
                 <SectionTitle
                   icon={<Plus className="h-5 w-5" />}
                   title="Create Position Request"
-                  subtitle="Publish a position to all contractors"
+                  subtitle="Publish a position and email matching approved contractors"
                 />
                 <div className="mt-5 grid gap-3 md:grid-cols-2">
                   <SelectField
@@ -765,7 +884,7 @@ export default function ManagerRequestsPage() {
                   onClick={createRequest}
                   className="mt-4 w-full rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
                 >
-                  Publish Request
+                  Publish Request + Notify Matching Contractors
                 </button>
               </GlassCard>
 
@@ -883,11 +1002,12 @@ export default function ManagerRequestsPage() {
               <div className="space-y-4">
                 {openRequests.length ? (
                   openRequests.map((request) => {
-                    const requestResponses = responsesByRequest[request.id] || [];
+                    const requestResponses =
+                      responsesByRequest[request.id] || [];
                     const availableResponses = requestResponses.filter(
                       (r) =>
                         r.response_status === "available" ||
-                        r.response_status === "confirmed"
+                        r.response_status === "confirmed",
                     );
 
                     return (
@@ -901,8 +1021,11 @@ export default function ManagerRequestsPage() {
                               {request.title}
                             </div>
                             <div className="text-sm text-zinc-400">
-                              {request.position}{request.required_skill ? ` · ${request.required_skill}` : ""} ·{" "}
-                              {eventMap[request.event_id]?.name || "Event"}
+                              {request.position}
+                              {request.required_skill
+                                ? ` · ${request.required_skill}`
+                                : ""}{" "}
+                              · {eventMap[request.event_id]?.name || "Event"}
                             </div>
                             <div className="mt-1 text-xs text-zinc-500">
                               {eventMap[request.event_id]?.venue || ""}
@@ -956,6 +1079,11 @@ export default function ManagerRequestsPage() {
                             availableResponses.map((response) => {
                               const contractor =
                                 contractorMap[response.contractor_id];
+                              const approvedSkills =
+                                contractor?.approved_skills || [];
+                              const hasRequiredSkill =
+                                !request.required_skill ||
+                                approvedSkills.includes(request.required_skill);
                               const isAlreadyConfirmed =
                                 request.status === "Filled" ||
                                 response.response_status === "confirmed";
@@ -972,15 +1100,31 @@ export default function ManagerRequestsPage() {
                                     </div>
                                     <div className="text-sm text-zinc-400">
                                       {contractor?.role || ""}
-                                      {request.required_skill && !(contractor?.approved_skills || []).includes(request.required_skill) ? " · Skill not approved" : ""}
                                       {contractor?.email
                                         ? ` · ${contractor.email}`
                                         : ""}
                                     </div>
                                     <div className="text-xs text-zinc-500">
                                       Status: {response.response_status}
-                                      {response.notes ? ` · ${response.notes}` : ""}
+                                      {response.notes
+                                        ? ` · ${response.notes}`
+                                        : ""}
                                     </div>
+                                    {request.required_skill ? (
+                                      <div
+                                        className={`mt-1 text-xs ${
+                                          hasRequiredSkill
+                                            ? "text-emerald-300"
+                                            : "text-red-300"
+                                        }`}
+                                      >
+                                        Required skill:{" "}
+                                        {request.required_skill} ·{" "}
+                                        {hasRequiredSkill
+                                          ? "Approved"
+                                          : "Not approved"}
+                                      </div>
+                                    ) : null}
                                   </div>
 
                                   {isAlreadyConfirmed ? (
@@ -994,7 +1138,7 @@ export default function ManagerRequestsPage() {
                                       }
                                       disabled={
                                         request.filled_slots >= request.slots ||
-                                        (!!request.required_skill && !(contractor?.approved_skills || []).includes(request.required_skill))
+                                        !hasRequiredSkill
                                       }
                                       className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black disabled:opacity-50"
                                     >
@@ -1036,8 +1180,11 @@ export default function ManagerRequestsPage() {
                             {request.title}
                           </div>
                           <div className="text-sm text-zinc-300">
-                            {request.position}{request.required_skill ? ` · ${request.required_skill}` : ""} ·{" "}
-                            {eventMap[request.event_id]?.name || "Event"}
+                            {request.position}
+                            {request.required_skill
+                              ? ` · ${request.required_skill}`
+                              : ""}{" "}
+                            · {eventMap[request.event_id]?.name || "Event"}
                           </div>
                           <div className="text-xs text-zinc-400">
                             {dateLabel(request.work_date)} ·{" "}
@@ -1047,8 +1194,9 @@ export default function ManagerRequestsPage() {
                             Filled {request.filled_slots} of {request.slots}
                             {request.selected_contractor_id
                               ? ` · Selected: ${
-                                  contractorMap[request.selected_contractor_id]
-                                    ?.name ||
+                                  contractorMap[
+                                    request.selected_contractor_id
+                                  ]?.name ||
                                   `Contractor #${request.selected_contractor_id}`
                                 }`
                               : ""}
