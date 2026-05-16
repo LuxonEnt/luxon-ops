@@ -352,6 +352,38 @@ async function sendScheduleCancellationEmail(payload: AssignmentEmailPayload) {
   }
 }
 
+async function sendAssignmentReminderEmail(payload: AssignmentEmailPayload) {
+  if (!payload.contractorEmail) {
+    return { ok: false, error: "Contractor email is missing." };
+  }
+
+  try {
+    const response = await fetch("/api/send-assignment-reminder-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: data?.error || "Reminder email could not be sent.",
+      };
+    }
+
+    return { ok: true, error: null };
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: error?.message || "Reminder email could not be sent.",
+    };
+  }
+}
+
 export default function ManagerPage() {
   const [activeTab, setActiveTab] = useState<TabName>("Overview");
   const [status, setStatus] = useState("Checking access...");
@@ -994,6 +1026,38 @@ export default function ManagerPage() {
     await loadAll();
   }
 
+  async function sendAssignmentReminder(row: AssignmentRow) {
+    const ok = window.confirm(
+      `Send reminder email to scheduled contractor?\n\n${row.contractor?.name || "Contractor"}\n${row.position || "Assignment"}\n${row.event?.name || "Event"}\n\nThis will send a branded reminder with the event details, work date, call time, venue, and portal link.`,
+    );
+
+    if (!ok) return;
+
+    setMessage("Sending reminder email...");
+
+    const emailResult = await sendAssignmentReminderEmail({
+      contractorName: row.contractor?.name || null,
+      contractorEmail: row.contractor?.email || null,
+      eventName: row.event?.name || null,
+      eventStartDate: row.event?.start_date || null,
+      eventEndDate: row.event?.end_date || null,
+      venue: row.event?.venue || null,
+      address: row.event?.address || null,
+      position: row.position || null,
+      workDate: row.work_date || null,
+      callTime: row.call_time || null,
+      rate: row.rate || 0,
+      rateType: row.rate_type || "day",
+    });
+
+    if (!emailResult.ok) {
+      setMessage(`Reminder email was not sent: ${emailResult.error}`);
+      return;
+    }
+
+    setMessage("Reminder email sent to scheduled contractor.");
+  }
+
   async function saveManagerReview(
     row: AssignmentRow,
     managerApprovedHours: string,
@@ -1374,6 +1438,7 @@ export default function ManagerPage() {
                         onToggle={() => toggleScheduleGroup(group.key)}
                         onDeleteAssignment={deleteAssignment}
                         onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
+                        onSendAssignmentReminder={sendAssignmentReminder}
                         onSaveReview={saveManagerReview}
                         onApproveHours={approveHours}
                         onUpdateAssignment={updateAssignment}
@@ -1715,6 +1780,7 @@ export default function ManagerPage() {
                           onToggle={() => toggleAssignmentGroup(group.key)}
                           onDeleteAssignment={deleteAssignment}
                         onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
+                          onSendAssignmentReminder={sendAssignmentReminder}
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
@@ -1770,6 +1836,7 @@ export default function ManagerPage() {
                           onToggle={() => togglePayrollGroup(group.key)}
                           onDeleteAssignment={deleteAssignment}
                         onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
+                          onSendAssignmentReminder={sendAssignmentReminder}
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
@@ -1921,6 +1988,7 @@ function EventAssignmentGroupCard({
   onUpdateAssignment,
   onDeleteAssignment,
   onCancelAndNotifyAssignment,
+  onSendAssignmentReminder,
   onSaveTimeCorrection,
 }: {
   group: EventAssignmentGroup;
@@ -1939,6 +2007,7 @@ function EventAssignmentGroupCard({
   ) => void;
   onDeleteAssignment: (id: number) => void;
   onCancelAndNotifyAssignment: (row: AssignmentRow) => void;
+  onSendAssignmentReminder: (row: AssignmentRow) => void;
   onSaveTimeCorrection: (
     row: AssignmentRow,
     values: {
@@ -2056,6 +2125,14 @@ function EventAssignmentGroupCard({
                       </div>
 
                       <button
+                        onClick={() => onSendAssignmentReminder(row)}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200"
+                      >
+                        <Clock3 className="h-4 w-4" />
+                        Send Reminder
+                      </button>
+
+                      <button
                         onClick={() => onCancelAndNotifyAssignment(row)}
                         className="inline-flex items-center gap-2 rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-300"
                       >
@@ -2086,6 +2163,7 @@ function EventAssignmentGroupCard({
                   onUpdateAssignment={onUpdateAssignment}
                   onDeleteAssignment={onDeleteAssignment}
                   onCancelAndNotifyAssignment={onCancelAndNotifyAssignment}
+                  onSendAssignmentReminder={onSendAssignmentReminder}
                   onSaveTimeCorrection={onSaveTimeCorrection}
                 />
               ))}
@@ -2104,6 +2182,7 @@ function ManagerAssignmentCard({
   onUpdateAssignment,
   onDeleteAssignment,
   onCancelAndNotifyAssignment,
+  onSendAssignmentReminder,
   onSaveTimeCorrection,
 }: {
   row: AssignmentRow;
@@ -2119,6 +2198,7 @@ function ManagerAssignmentCard({
   ) => void;
   onDeleteAssignment: (id: number) => void;
   onCancelAndNotifyAssignment: (row: AssignmentRow) => void;
+  onSendAssignmentReminder: (row: AssignmentRow) => void;
   onSaveTimeCorrection: (
     row: AssignmentRow,
     values: {
