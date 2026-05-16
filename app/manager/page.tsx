@@ -819,7 +819,24 @@ export default function ManagerPage() {
     await loadAll();
   }
 
-  function parseAssignmentDates() {
+ function parseAssignmentDates() {
+  const dateParts = assignmentForm.work_dates
+    .split(/[,\n]/)
+    .map((date) => date.trim())
+    .filter(Boolean);
+
+  const uniqueDates = Array.from(new Set(dateParts));
+
+  if (uniqueDates.length) {
+    return uniqueDates;
+  }
+
+  if (assignmentForm.work_date) {
+    return [assignmentForm.work_date];
+  }
+
+  return [];
+} {
     const dateParts = assignmentForm.work_dates
       .split(/[,
 ]/)
