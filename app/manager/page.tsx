@@ -1862,16 +1862,17 @@ export default function ManagerPage() {
                 <div className="mt-5 space-y-3">
                   {assignmentRows.length ? (
                     assignmentRows.map((row) => (
-                      <ManagerAssignmentCard
-                        key={row.id}
-                        row={row}
-                        onSaveReview={saveManagerReview}
-                        onApproveHours={approveHours}
-                        onUpdateAssignment={updateAssignment}
-                        onDeleteAssignment={deleteAssignment}
-                        onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
-                        onSaveTimeCorrection={saveTimeCorrection}
-                      />
+                     <ManagerAssignmentCard
+  key={row.id}
+  row={row}
+  onSaveReview={saveManagerReview}
+  onApproveHours={approveHours}
+  onUpdateAssignment={updateAssignment}
+  onDeleteAssignment={deleteAssignment}
+  onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
+  onSendAssignmentReminder={sendAssignmentReminder}
+  onSaveTimeCorrection={saveTimeCorrection}
+/>
                     ))
                   ) : (
                     <EmptyState text="No invoice records yet." />
