@@ -254,6 +254,7 @@ export default function ManagerRequestsPage() {
     position: "",
     required_skill: "",
     work_date: "",
+    work_dates: "",
     call_time: "",
     rate: "",
     rate_type: "day",
@@ -378,6 +379,25 @@ export default function ManagerRequestsPage() {
     window.location.href = "/login";
   }
 
+  function parseRequestWorkDates() {
+    const dateParts = requestForm.work_dates
+      .split(/[,\n]/)
+      .map((date) => date.trim())
+      .filter(Boolean);
+
+    const uniqueDates = Array.from(new Set(dateParts));
+
+    if (uniqueDates.length) {
+      return uniqueDates;
+    }
+
+    if (requestForm.work_date) {
+      return [requestForm.work_date];
+    }
+
+    return [];
+  }
+
   async function createRequest() {
     if (
       !requestForm.event_id ||
@@ -389,19 +409,31 @@ export default function ManagerRequestsPage() {
       return;
     }
 
-    const { error } = await supabase.from("crew_position_requests").insert({
+    const workDates = parseRequestWorkDates();
+
+    if (!workDates.length) {
+      setMessage("At least one work date is required.");
+      return;
+    }
+
+    const rowsToInsert = workDates.map((workDate) => ({
       event_id: Number(requestForm.event_id),
       title: requestForm.title.trim(),
       position: requestForm.position.trim(),
       required_skill: requestForm.required_skill || null,
-      work_date: requestForm.work_date || null,
+      work_date: workDate || null,
       call_time: requestForm.call_time || null,
       rate: Number(requestForm.rate || 0),
       rate_type: requestForm.rate_type,
       slots: Number(requestForm.slots || 1),
+      filled_slots: 0,
       notes: requestForm.notes.trim() || null,
       status: "Open",
-    });
+    }));
+
+    const { error } = await supabase
+      .from("crew_position_requests")
+      .insert(rowsToInsert);
 
     if (error) {
       setMessage(error.message);
@@ -420,25 +452,39 @@ export default function ManagerRequestsPage() {
       );
     });
 
-    const emailResult = await sendOpportunityAvailableEmail({
-      recipients: matchingContractors.map((contractor) => ({
-        contractorName: contractor.name,
-        contractorEmail: contractor.email || null,
-      })),
-      eventName: selectedEvent?.name || null,
-      eventStartDate: selectedEvent?.start_date || null,
-      eventEndDate: selectedEvent?.end_date || null,
-      venue: selectedEvent?.venue || null,
-      address: selectedEvent?.address || null,
-      requestTitle: requestForm.title.trim(),
-      position: requestForm.position.trim(),
-      requiredSkill: requestForm.required_skill || null,
-      workDate: requestForm.work_date || null,
-      callTime: requestForm.call_time || null,
-      rate: Number(requestForm.rate || 0),
-      rateType: requestForm.rate_type || "day",
-      notes: requestForm.notes.trim() || null,
-    });
+    let totalEmailsSent = 0;
+    let emailFailureMessage = "";
+
+    for (const workDate of workDates) {
+      const emailResult = await sendOpportunityAvailableEmail({
+        recipients: matchingContractors.map((contractor) => ({
+          contractorName: contractor.name,
+          contractorEmail: contractor.email || null,
+        })),
+        eventName: selectedEvent?.name || null,
+        eventStartDate: selectedEvent?.start_date || null,
+        eventEndDate: selectedEvent?.end_date || null,
+        venue: selectedEvent?.venue || null,
+        address: selectedEvent?.address || null,
+        requestTitle:
+          workDates.length > 1
+            ? `${requestForm.title.trim()} - ${dateLabel(workDate)}`
+            : requestForm.title.trim(),
+        position: requestForm.position.trim(),
+        requiredSkill: requestForm.required_skill || null,
+        workDate,
+        callTime: requestForm.call_time || null,
+        rate: Number(requestForm.rate || 0),
+        rateType: requestForm.rate_type || "day",
+        notes: requestForm.notes.trim() || null,
+      });
+
+      if (emailResult.ok) {
+        totalEmailsSent += Number(emailResult.sentCount || 0);
+      } else if (!emailFailureMessage) {
+        emailFailureMessage = emailResult.error || "Opportunity emails could not be sent.";
+      }
+    }
 
     setRequestForm({
       event_id: "",
@@ -446,6 +492,7 @@ export default function ManagerRequestsPage() {
       position: "",
       required_skill: "",
       work_date: "",
+      work_dates: "",
       call_time: "",
       rate: "",
       rate_type: "day",
@@ -453,13 +500,13 @@ export default function ManagerRequestsPage() {
       notes: "",
     });
 
-    if (emailResult.ok) {
+    if (emailFailureMessage) {
       setMessage(
-        `Availability request created and published. Opportunity email sent to ${emailResult.sentCount} matching contractor(s).`,
+        `Created ${workDates.length} position request(s), but some opportunity emails were not sent: ${emailFailureMessage}`,
       );
     } else {
       setMessage(
-        `Availability request created and published, but opportunity emails were not sent: ${emailResult.error}`,
+        `Created ${workDates.length} position request(s). Opportunity emails sent to ${totalEmailsSent} matching contractor notification(s).`,
       );
     }
 
@@ -784,7 +831,7 @@ export default function ManagerRequestsPage() {
                 <SectionTitle
                   icon={<Plus className="h-5 w-5" />}
                   title="Create Position Request"
-                  subtitle="Publish a position to all contractors"
+                  subtitle="Publish one or multiple work dates to matching approved contractors"
                 />
                 <div className="mt-5 grid gap-3 md:grid-cols-2">
                   <SelectField
@@ -832,12 +879,20 @@ export default function ManagerRequestsPage() {
                     }
                   />
                   <Field
-                    label="Work Date"
+                    label="Single Work Date"
                     type="date"
                     value={requestForm.work_date}
                     onChange={(v) =>
                       setRequestForm({ ...requestForm, work_date: v })
                     }
+                  />
+                  <TextAreaField
+                    label="Multiple Work Dates"
+                    value={requestForm.work_dates}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, work_dates: v })
+                    }
+                    placeholder={"Optional. Enter one date per line or comma separated. Example:\n2026-06-17\n2026-06-18\n2026-06-19"}
                   />
                   <Field
                     label="Call Time"
@@ -1331,10 +1386,12 @@ function TextAreaField({
   label,
   value,
   onChange,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 }) {
   return (
     <label className="block md:col-span-2">
@@ -1344,6 +1401,7 @@ function TextAreaField({
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
         className="min-h-[100px] w-full rounded-2xl border border-white/10 bg-black/30 p-4 text-white outline-none focus:border-amber-400/40"
       />
     </label>
