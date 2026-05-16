@@ -6,7 +6,7 @@ import {
   AlertCircle,
   CalendarDays,
   CheckCircle2,
-  ChevronDown, 
+  ChevronDown,
   ClipboardList,
   Clock3,
   DollarSign,
@@ -436,6 +436,7 @@ export default function ManagerPage() {
     contractor_id: "",
     position: "",
     work_date: "",
+    work_dates: "",
     call_time: "",
     rate: "",
     rate_type: "day",
@@ -818,6 +819,22 @@ export default function ManagerPage() {
     await loadAll();
   }
 
+  function parseAssignmentDates() {
+    const dateParts = assignmentForm.work_dates
+      .split(/[,
+]/)
+      .map((date) => date.trim())
+      .filter(Boolean);
+
+    const dates = dateParts.length
+      ? dateParts
+      : assignmentForm.work_date
+        ? [assignmentForm.work_date]
+        : [];
+
+    return Array.from(new Set(dates));
+  }
+
   async function createAssignment() {
     if (
       !assignmentForm.event_id ||
@@ -828,11 +845,18 @@ export default function ManagerPage() {
       return;
     }
 
-    const { error } = await supabase.from("assignments").insert({
+    const selectedDates = parseAssignmentDates();
+
+    if (!selectedDates.length) {
+      setMessage("At least one work date is required.");
+      return;
+    }
+
+    const assignmentRowsToInsert = selectedDates.map((workDate) => ({
       event_id: Number(assignmentForm.event_id),
       contractor_id: Number(assignmentForm.contractor_id),
       position: assignmentForm.position.trim(),
-      work_date: assignmentForm.work_date || null,
+      work_date: workDate,
       call_time: assignmentForm.call_time || null,
       break_hours: 0,
       rate: Number(assignmentForm.rate || 0),
@@ -843,7 +867,11 @@ export default function ManagerPage() {
       hours_approved: false,
       manager_approved_hours: null,
       manager_notes: null,
-    });
+    }));
+
+    const { error } = await supabase
+      .from("assignments")
+      .insert(assignmentRowsToInsert);
 
     if (error) {
       setMessage(error.message);
@@ -857,35 +885,42 @@ export default function ManagerPage() {
       (event) => event.id === Number(assignmentForm.event_id),
     );
 
-    const emailResult = await sendAssignmentConfirmationEmail({
-      contractorName: selectedContractor?.name || null,
-      contractorEmail: selectedContractor?.email || null,
-      eventName: selectedEvent?.name || null,
-      eventStartDate: selectedEvent?.start_date || null,
-      eventEndDate: selectedEvent?.end_date || null,
-      venue: selectedEvent?.venue || null,
-      address: selectedEvent?.address || null,
-      position: assignmentForm.position.trim(),
-      workDate: assignmentForm.work_date || null,
-      callTime: assignmentForm.call_time || null,
-      rate: Number(assignmentForm.rate || 0),
-      rateType: assignmentForm.rate_type || "day",
-    });
+    const emailResults = await Promise.all(
+      selectedDates.map((workDate) =>
+        sendAssignmentConfirmationEmail({
+          contractorName: selectedContractor?.name || null,
+          contractorEmail: selectedContractor?.email || null,
+          eventName: selectedEvent?.name || null,
+          eventStartDate: selectedEvent?.start_date || null,
+          eventEndDate: selectedEvent?.end_date || null,
+          venue: selectedEvent?.venue || null,
+          address: selectedEvent?.address || null,
+          position: assignmentForm.position.trim(),
+          workDate,
+          callTime: assignmentForm.call_time || null,
+          rate: Number(assignmentForm.rate || 0),
+          rateType: assignmentForm.rate_type || "day",
+        }),
+      ),
+    );
+
+    const failedEmails = emailResults.filter((result) => !result.ok);
 
     setAssignmentForm({
       event_id: "",
       contractor_id: "",
       position: "",
       work_date: "",
+      work_dates: "",
       call_time: "",
       rate: "",
       rate_type: "day",
     });
 
     setMessage(
-      emailResult.ok
-        ? "Assignment created. Email confirmation sent."
-        : `Assignment created, but email confirmation was not sent: ${emailResult.error}`,
+      failedEmails.length
+        ? `${selectedDates.length} assignment date(s) created, but ${failedEmails.length} confirmation email(s) failed to send: ${failedEmails[0]?.error}`
+        : `${selectedDates.length} assignment date(s) created. Email confirmation${selectedDates.length > 1 ? "s" : ""} sent.`,
     );
     await loadAll();
   }
@@ -1681,7 +1716,7 @@ export default function ManagerPage() {
                   <SectionTitle
                     icon={<Plus className="h-5 w-5" />}
                     title="Create Assignment"
-                    subtitle="Assign one contractor to one event"
+                    subtitle="Assign one contractor to one or multiple event dates"
                   />
 
                   <div className="mt-5 space-y-3">
@@ -1718,13 +1753,26 @@ export default function ManagerPage() {
                       }
                     />
                     <Field
-                      label="Work Date"
+                      label="Single Work Date"
                       type="date"
                       value={assignmentForm.work_date}
                       onChange={(v) =>
                         setAssignmentForm({ ...assignmentForm, work_date: v })
                       }
                     />
+                    <TextAreaField
+                      label="Multiple Work Dates"
+                      value={assignmentForm.work_dates}
+                      onChange={(v) =>
+                        setAssignmentForm({
+                          ...assignmentForm,
+                          work_dates: v,
+                        })
+                      }
+                    />
+                    <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+                      For multiple-day positions, enter one date per line or comma separated using YYYY-MM-DD. Example: 2026-06-17, 2026-06-18, 2026-06-19. If this box is filled, it will use these dates instead of the single work date above.
+                    </div>
                     <Field
                       label="Call Time"
                       type="time"
@@ -1779,7 +1827,7 @@ export default function ManagerPage() {
                           isOpen={expandedAssignmentEventIds[group.key] ?? true}
                           onToggle={() => toggleAssignmentGroup(group.key)}
                           onDeleteAssignment={deleteAssignment}
-                        onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
+                          onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
                           onSendAssignmentReminder={sendAssignmentReminder}
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
@@ -1835,7 +1883,7 @@ export default function ManagerPage() {
                           isOpen={expandedPayrollEventIds[group.key] ?? true}
                           onToggle={() => togglePayrollGroup(group.key)}
                           onDeleteAssignment={deleteAssignment}
-                        onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
+                          onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
                           onSendAssignmentReminder={sendAssignmentReminder}
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
