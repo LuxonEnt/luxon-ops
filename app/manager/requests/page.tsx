@@ -273,6 +273,22 @@ export default function ManagerRequestsPage() {
     rate_type: "day",
   });
 
+  const [editingRequestId, setEditingRequestId] = useState<number | null>(null);
+  const [editRequestForm, setEditRequestForm] = useState({
+    event_id: "",
+    title: "",
+    position: "",
+    required_skill: "",
+    work_date: "",
+    call_time: "",
+    rate: "",
+    rate_type: "day",
+    slots: "1",
+    filled_slots: "0",
+    notes: "",
+    status: "Open",
+  });
+
   useEffect(() => {
     async function boot() {
       const {
@@ -513,6 +529,121 @@ export default function ManagerRequestsPage() {
     await loadAll();
   }
 
+  function startEditRequest(request: CrewRequest) {
+    setEditingRequestId(request.id);
+    setEditRequestForm({
+      event_id: String(request.event_id || ""),
+      title: request.title || "",
+      position: request.position || "",
+      required_skill: request.required_skill || "",
+      work_date: request.work_date || "",
+      call_time: request.call_time || "",
+      rate: String(request.rate ?? ""),
+      rate_type: request.rate_type || "day",
+      slots: String(request.slots ?? 1),
+      filled_slots: String(request.filled_slots ?? 0),
+      notes: request.notes || "",
+      status: request.status || "Open",
+    });
+    setMessage("Editing live position request.");
+  }
+
+  function cancelEditRequest() {
+    setEditingRequestId(null);
+    setEditRequestForm({
+      event_id: "",
+      title: "",
+      position: "",
+      required_skill: "",
+      work_date: "",
+      call_time: "",
+      rate: "",
+      rate_type: "day",
+      slots: "1",
+      filled_slots: "0",
+      notes: "",
+      status: "Open",
+    });
+  }
+
+  async function saveEditedRequest(requestId: number) {
+    if (
+      !editRequestForm.event_id ||
+      !editRequestForm.title.trim() ||
+      !editRequestForm.position.trim() ||
+      !editRequestForm.required_skill
+    ) {
+      setMessage("Event, title, position, and required skill are required.");
+      return;
+    }
+
+    const filledSlots = Number(editRequestForm.filled_slots || 0);
+    const slots = Number(editRequestForm.slots || 1);
+
+    if (filledSlots > slots) {
+      setMessage("Filled slots cannot be greater than total slots.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("crew_position_requests")
+      .update({
+        event_id: Number(editRequestForm.event_id),
+        title: editRequestForm.title.trim(),
+        position: editRequestForm.position.trim(),
+        required_skill: editRequestForm.required_skill || null,
+        work_date: editRequestForm.work_date || null,
+        call_time: editRequestForm.call_time || null,
+        rate: Number(editRequestForm.rate || 0),
+        rate_type: editRequestForm.rate_type || "day",
+        slots,
+        filled_slots: filledSlots,
+        notes: editRequestForm.notes.trim() || null,
+        status: editRequestForm.status || "Open",
+      })
+      .eq("id", requestId);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    cancelEditRequest();
+    setMessage("Live position request updated.");
+    await loadAll();
+  }
+
+  async function duplicateRequest(request: CrewRequest) {
+    const ok = window.confirm(
+      `Duplicate this position request?\n\n${request.title}\n${request.position}`,
+    );
+
+    if (!ok) return;
+
+    const { error } = await supabase.from("crew_position_requests").insert({
+      event_id: request.event_id,
+      title: `${request.title} Copy`,
+      position: request.position,
+      required_skill: request.required_skill || null,
+      work_date: request.work_date || null,
+      call_time: request.call_time || null,
+      rate: Number(request.rate || 0),
+      rate_type: request.rate_type || "day",
+      slots: Number(request.slots || 1),
+      filled_slots: 0,
+      notes: request.notes || null,
+      status: "Open",
+    });
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Position request duplicated.");
+    await loadAll();
+  }
+
   async function quickAssign() {
     if (
       !quickAssignForm.event_id ||
@@ -660,7 +791,7 @@ export default function ManagerRequestsPage() {
 
   async function deleteRequest(request: CrewRequest) {
     const ok = window.confirm(
-      `Delete this filled request?\n\n${request.title}\n${request.position}\n\nThis removes the posting and all responses from the request list. It will not delete any assignment already created.`
+      `Delete this position request?\n\n${request.title}\n${request.position}\n\nThis removes the posting and all responses from the request list. It will not delete any assignment already created.`
     );
 
     if (!ok) return;
@@ -685,7 +816,7 @@ export default function ManagerRequestsPage() {
       return;
     }
 
-    setMessage("Filled request deleted.");
+    setMessage("Position request deleted.");
     await loadAll();
   }
 
@@ -1090,15 +1221,216 @@ export default function ManagerRequestsPage() {
                               </div>
                             </div>
 
-                            <button
-                              onClick={() => deleteRequest(request)}
-                              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 hover:bg-red-500/20"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Delete Position
-                            </button>
+                            <div className="flex flex-wrap gap-2 md:justify-end">
+                              <button
+                                onClick={() => startEditRequest(request)}
+                                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200 hover:bg-amber-400/20"
+                              >
+                                Edit Position
+                              </button>
+
+                              <button
+                                onClick={() => duplicateRequest(request)}
+                                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white hover:bg-white/[0.08]"
+                              >
+                                Duplicate
+                              </button>
+
+                              <button
+                                onClick={() => deleteRequest(request)}
+                                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 hover:bg-red-500/20"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Delete Position
+                              </button>
+                            </div>
                           </div>
                         </div>
+
+                        {editingRequestId === request.id ? (
+                          <div className="mb-5 rounded-3xl border border-amber-400/20 bg-amber-400/[0.07] p-5">
+                            <div className="mb-4">
+                              <div className="text-lg font-semibold text-amber-100">
+                                Edit Live Position Request
+                              </div>
+                              <div className="text-sm text-zinc-400">
+                                Update the posting details contractors see in the portal.
+                              </div>
+                            </div>
+
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <SelectField
+                                label="Event"
+                                value={editRequestForm.event_id}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    event_id: v,
+                                  })
+                                }
+                                options={events.map((e) => ({
+                                  value: String(e.id),
+                                  label: e.name,
+                                }))}
+                              />
+
+                              <Field
+                                label="Request Title"
+                                value={editRequestForm.title}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    title: v,
+                                  })
+                                }
+                              />
+
+                              <Field
+                                label="Position"
+                                value={editRequestForm.position}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    position: v,
+                                  })
+                                }
+                              />
+
+                              <SelectField
+                                label="Required Skill"
+                                value={editRequestForm.required_skill}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    required_skill: v,
+                                  })
+                                }
+                                options={SKILL_OPTIONS.map((skill) => ({
+                                  value: skill,
+                                  label: skill,
+                                }))}
+                              />
+
+                              <Field
+                                label="Work Date"
+                                type="date"
+                                value={editRequestForm.work_date}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    work_date: v,
+                                  })
+                                }
+                              />
+
+                              <Field
+                                label="Call Time"
+                                type="time"
+                                value={editRequestForm.call_time}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    call_time: v,
+                                  })
+                                }
+                              />
+
+                              <Field
+                                label="Rate"
+                                type="number"
+                                value={editRequestForm.rate}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    rate: v,
+                                  })
+                                }
+                              />
+
+                              <SelectField
+                                label="Rate Type"
+                                value={editRequestForm.rate_type}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    rate_type: v,
+                                  })
+                                }
+                                options={[
+                                  { value: "day", label: "day" },
+                                  { value: "hour", label: "hour" },
+                                ]}
+                              />
+
+                              <Field
+                                label="Slots"
+                                type="number"
+                                value={editRequestForm.slots}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    slots: v,
+                                  })
+                                }
+                              />
+
+                              <Field
+                                label="Filled Slots"
+                                type="number"
+                                value={editRequestForm.filled_slots}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    filled_slots: v,
+                                  })
+                                }
+                              />
+
+                              <SelectField
+                                label="Status"
+                                value={editRequestForm.status}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    status: v,
+                                  })
+                                }
+                                options={[
+                                  { value: "Open", label: "Open" },
+                                  { value: "Filled", label: "Filled" },
+                                  { value: "Cancelled", label: "Cancelled" },
+                                ]}
+                              />
+
+                              <TextAreaField
+                                label="Notes"
+                                value={editRequestForm.notes}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    notes: v,
+                                  })
+                                }
+                              />
+                            </div>
+
+                            <div className="mt-4 flex flex-wrap gap-3">
+                              <button
+                                onClick={() => saveEditedRequest(request.id)}
+                                className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-5 py-3 font-semibold text-black"
+                              >
+                                Save Position Changes
+                              </button>
+
+                              <button
+                                onClick={cancelEditRequest}
+                                className="rounded-2xl border border-white/10 bg-white/[0.05] px-5 py-3 text-sm font-semibold text-white"
+                              >
+                                Cancel Edit
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
 
                         <div className="mb-4 grid gap-3 md:grid-cols-4">
                           <MiniInfo
