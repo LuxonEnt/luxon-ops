@@ -38,7 +38,7 @@ const PORTAL_BACKGROUND_STYLE = {
   backgroundAttachment: "fixed",
 } as React.CSSProperties;
 
-const SKILL_OPTIONS = [
+const DEFAULT_SKILL_OPTIONS = [
   "A1",
   "A2",
   "L1",
@@ -549,6 +549,7 @@ export default function ContractorPage() {
   const [contractor, setContractor] = useState<Contractor | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [documents, setDocuments] = useState<StoredDoc[]>([]);
   const [mobileTab, setMobileTab] = useState<MobileTab>("home");
@@ -608,7 +609,11 @@ export default function ContractorPage() {
       return;
     }
 
-    const [{ data: assignmentRows }, { data: eventRows }] = await Promise.all([
+    const [
+      { data: assignmentRows },
+      { data: eventRows },
+      { data: skillSetsData, error: skillSetsError },
+    ] = await Promise.all([
       supabase
         .from("assignments")
         .select("*")
@@ -619,11 +624,22 @@ export default function ContractorPage() {
         .select(
           "id,name,venue,address,client,latitude,longitude,geofence_radius_feet"
         ),
+      supabase
+        .from("skill_sets")
+        .select("name")
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
     ]);
 
     setContractor(contractorRow);
     setAssignments(assignmentRows || []);
     setEvents(eventRows || []);
+
+    if (!skillSetsError && skillSetsData?.length) {
+      setSkillOptions(skillSetsData.map((item: any) => item.name));
+    } else {
+      setSkillOptions(DEFAULT_SKILL_OPTIONS);
+    }
     setProfileForm({
       name: contractorRow.name || "",
       phone: contractorRow.phone || "",
@@ -2161,7 +2177,7 @@ function ProfilePanel({
             <div className="mb-2 text-sm font-semibold text-white">Request Skill Approval</div>
             <div className="mb-3 text-xs text-zinc-400">Select the skills you want managers to approve for future crew requests.</div>
             <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-              {SKILL_OPTIONS.map((skill) => {
+              {skillOptions.map((skill) => {
                 const active = profileForm.requested_skills.includes(skill);
                 return (
                   <button
