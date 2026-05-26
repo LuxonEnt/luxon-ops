@@ -2996,11 +2996,13 @@ function Field({
   value,
   onChange,
   type = "text",
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
