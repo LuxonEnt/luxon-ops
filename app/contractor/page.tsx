@@ -548,9 +548,9 @@ export default function ContractorPage() {
   const [message, setMessage] = useState("");
   const [contractor, setContractor] = useState<Contractor | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS);
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
+const [events, setEvents] = useState<EventItem[]>([]);
+const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS);
+const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [documents, setDocuments] = useState<StoredDoc[]>([]);
   const [mobileTab, setMobileTab] = useState<MobileTab>("home");
   const [assignmentFilter, setAssignmentFilter] =
