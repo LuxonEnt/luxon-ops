@@ -1691,8 +1691,9 @@ export default function ManagerPage() {
             )}
 
             {activeTab === "Contractors" && (
-              <div className="grid gap-6 xl:grid-cols-[0.9fr_2.1fr]">
-                <GlassCard>
+              <div className="space-y-6">
+                <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
+                  <GlassCard>
                   <SectionTitle
                     icon={<Plus className="h-5 w-5" />}
                     title="Create Contractor"
@@ -1829,7 +1830,8 @@ export default function ManagerPage() {
                       These skills are used for contractor skill approvals and live position request matching.
                     </div>
                   </div>
-                </GlassCard>
+                  </GlassCard>
+                </div>
 
                 <GlassCard>
                   <SectionTitle
@@ -1838,9 +1840,10 @@ export default function ManagerPage() {
                     subtitle={`${filteredContractors.length} matching results`}
                   />
 
-                  <div className="mt-5 space-y-4">
+                  <div className="mt-5">
                     {filteredContractors.length ? (
-                      filteredContractors.map((contractor) => (
+                      <div className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
+                        {filteredContractors.map((contractor) => (
                         <EditableContractorCard
                           key={contractor.id}
                           contractor={contractor}
@@ -1848,7 +1851,8 @@ export default function ManagerPage() {
                           onSave={saveContractor}
                           onDelete={deleteContractor}
                         />
-                      ))
+                        ))}
+                      </div>
                     ) : (
                       <EmptyState text="No contractors found." />
                     )}
