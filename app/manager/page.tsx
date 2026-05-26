@@ -141,7 +141,7 @@ type TabName =
   | "Invoices"
   | "Documents";
 
-const SKILL_OPTIONS = [
+const DEFAULT_SKILL_OPTIONS = [
   "A1",
   "A2",
   "L1",
@@ -406,6 +406,8 @@ export default function ManagerPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [availability, setAvailability] = useState<AvailabilityItem[]>([]);
   const [documents, setDocuments] = useState<StoredDoc[]>([]);
+  const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS);
+  const [newSkillName, setNewSkillName] = useState("");
 
   const [eventForm, setEventForm] = useState({
     name: "",
@@ -484,6 +486,7 @@ export default function ManagerPage() {
       contractorsResult,
       assignmentsResult,
       availabilityResult,
+      skillSetsResult,
     ] = await Promise.all([
       supabase
         .from("events")
@@ -501,6 +504,11 @@ export default function ManagerPage() {
         .from("contractor_availability")
         .select("*")
         .order("created_at", { ascending: false }),
+      supabase
+        .from("skill_sets")
+        .select("name")
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
     ]);
 
     if (
@@ -524,6 +532,12 @@ export default function ManagerPage() {
     setContractors(contractorsResult.data || []);
     setAssignments(assignmentsResult.data || []);
     setAvailability(availabilityResult.data || []);
+
+    if (!skillSetsResult.error && skillSetsResult.data?.length) {
+      setSkillOptions(skillSetsResult.data.map((item: any) => item.name));
+    } else {
+      setSkillOptions(DEFAULT_SKILL_OPTIONS);
+    }
 
     if ((eventsResult.data || [])[0] && !assignmentForm.event_id) {
       setAssignmentForm((prev) => ({
@@ -686,6 +700,86 @@ export default function ManagerPage() {
     }
 
     setMessage("Event deleted.");
+    await loadAll();
+  }
+
+  async function addSkillSet() {
+    const cleanName = newSkillName.trim();
+
+    if (!cleanName) {
+      setMessage("Enter a skill name first.");
+      return;
+    }
+
+    const existing = skillOptions.some(
+      (skill) => skill.toLowerCase() === cleanName.toLowerCase(),
+    );
+
+    if (existing) {
+      setMessage("That skill already exists.");
+      return;
+    }
+
+    const { error } = await supabase.from("skill_sets").insert({
+      name: cleanName,
+      sort_order: skillOptions.length + 1,
+      is_active: true,
+    });
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setNewSkillName("");
+    setMessage("Skill set added.");
+    await loadAll();
+  }
+
+  async function deleteSkillSet(skillName: string) {
+    const ok = window.confirm(
+      `Delete this skill set?\n\n${skillName}\n\nThis will remove it from the skill list and clear it from contractor requested/approved skills.`,
+    );
+
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("skill_sets")
+      .delete()
+      .eq("name", skillName);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    const affectedContractors = contractors.filter((contractor) => {
+      return (
+        (contractor.requested_skills || []).includes(skillName) ||
+        (contractor.approved_skills || []).includes(skillName)
+      );
+    });
+
+    for (const contractor of affectedContractors) {
+      await supabase
+        .from("contractors")
+        .update({
+          requested_skills: (contractor.requested_skills || []).filter(
+            (skill) => skill !== skillName,
+          ),
+          approved_skills: (contractor.approved_skills || []).filter(
+            (skill) => skill !== skillName,
+          ),
+        })
+        .eq("id", contractor.id);
+    }
+
+    await supabase
+      .from("crew_position_requests")
+      .update({ required_skill: null })
+      .eq("required_skill", skillName);
+
+    setMessage("Skill set deleted.");
     await loadAll();
   }
 
@@ -1686,6 +1780,59 @@ export default function ManagerPage() {
 
                 <GlassCard>
                   <SectionTitle
+                    icon={<Sparkles className="h-5 w-5" />}
+                    title="Skill Sets"
+                    subtitle="Add or remove available contractor skills"
+                  />
+
+                  <div className="mt-5 space-y-4">
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                      <Field
+                        label="New Skill Name"
+                        value={newSkillName}
+                        onChange={setNewSkillName}
+                        placeholder="Example: Video Director"
+                      />
+                      <button
+                        onClick={addSkillSet}
+                        className="self-end rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-5 py-3 font-semibold text-black"
+                      >
+                        Add Skill
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {skillOptions.length ? (
+                        skillOptions.map((skill) => (
+                          <div
+                            key={skill}
+                            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-white"
+                          >
+                            <span>{skill}</span>
+                            <button
+                              type="button"
+                              onClick={() => deleteSkillSet(skill)}
+                              className="rounded-full border border-red-500/20 bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-300 hover:bg-red-500/20"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <span className="text-sm text-zinc-500">
+                          No skill sets found.
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-400/15 bg-amber-400/10 p-3 text-xs text-amber-100">
+                      These skills are used for contractor skill approvals and live position request matching.
+                    </div>
+                  </div>
+                </GlassCard>
+
+                <GlassCard>
+                  <SectionTitle
                     icon={<Users className="h-5 w-5" />}
                     title="Contractors"
                     subtitle={`${filteredContractors.length} matching results`}
@@ -1697,6 +1844,7 @@ export default function ManagerPage() {
                         <EditableContractorCard
                           key={contractor.id}
                           contractor={contractor}
+                          skillOptions={skillOptions}
                           onSave={saveContractor}
                           onDelete={deleteContractor}
                         />
@@ -2638,10 +2786,12 @@ function EditableEventCard({
 
 function EditableContractorCard({
   contractor,
+  skillOptions,
   onSave,
   onDelete,
 }: {
   contractor: Contractor;
+  skillOptions: string[];
   onSave: (contractor: Contractor) => void;
   onDelete: (contractor: Contractor) => void;
 }) {
@@ -2719,7 +2869,7 @@ function EditableContractorCard({
           Manager Approved Skills
         </div>
         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-          {SKILL_OPTIONS.map((skill) => {
+          {skillOptions.map((skill) => {
             const active = (row.approved_skills || []).includes(skill);
             return (
               <button
