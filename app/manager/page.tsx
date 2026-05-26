@@ -2798,15 +2798,23 @@ function EditableContractorCard({
   const [row, setRow] = useState<Contractor>(contractor);
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
-      <div className="mb-4">
-        <div className="text-xl font-semibold">{contractor.name}</div>
-        <div className="text-sm text-zinc-400">
-          {contractor.email || "--"} · {contractor.role || "--"}
+    <div className="rounded-3xl border border-white/10 bg-black/25 p-4 sm:p-5">
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="truncate text-xl font-semibold">
+            {contractor.name}
+          </div>
+          <div className="truncate text-sm text-zinc-400">
+            {contractor.email || "--"} · {contractor.role || "--"}
+          </div>
+        </div>
+
+        <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-semibold text-zinc-300">
+          Contractor Profile
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2">
         <Field
           label="Name"
           value={row.name || ""}
@@ -2844,71 +2852,77 @@ function EditableContractorCard({
         />
       </div>
 
-      <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-        <div className="mb-2 text-sm font-semibold text-white">
-          Requested Skills
-        </div>
-        <div className="mb-4 flex flex-wrap gap-2">
-          {(row.requested_skills || []).length ? (
-            (row.requested_skills || []).map((skill) => (
-              <span
-                key={skill}
-                className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs text-amber-200"
-              >
-                {skill}
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <div className="rounded-2xl border border-amber-400/15 bg-amber-400/[0.06] p-4">
+          <div className="mb-3 text-sm font-semibold text-amber-100">
+            Requested Skills
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {(row.requested_skills || []).length ? (
+              (row.requested_skills || []).map((skill) => (
+                <span
+                  key={skill}
+                  className="inline-flex items-center whitespace-nowrap rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-200"
+                >
+                  {skill}
+                </span>
+              ))
+            ) : (
+              <span className="text-sm text-zinc-500">
+                No requested skills yet.
               </span>
-            ))
-          ) : (
-            <span className="text-sm text-zinc-500">
-              No requested skills yet.
-            </span>
-          )}
+            )}
+          </div>
         </div>
 
-        <div className="mb-2 text-sm font-semibold text-white">
-          Manager Approved Skills
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-          {skillOptions.map((skill) => {
-            const active = (row.approved_skills || []).includes(skill);
-            return (
-              <button
-                key={skill}
-                type="button"
-                onClick={() =>
-                  setRow((prev) => ({
-                    ...prev,
-                    approved_skills: active
-                      ? (prev.approved_skills || []).filter(
-                          (item) => item !== skill,
-                        )
-                      : [...(prev.approved_skills || []), skill],
-                  }))
-                }
-                className={`rounded-2xl border px-3 py-3 text-sm font-semibold ${
-                  active
-                    ? "border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
-                    : "border-white/10 bg-white/[0.04] text-zinc-300"
-                }`}
-              >
-                {skill}
-              </button>
-            );
-          })}
+        <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.05] p-4">
+          <div className="mb-3 text-sm font-semibold text-emerald-100">
+            Manager Approved Skills
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {skillOptions.map((skill) => {
+              const active = (row.approved_skills || []).includes(skill);
+              return (
+                <button
+                  key={skill}
+                  type="button"
+                  onClick={() =>
+                    setRow((prev) => ({
+                      ...prev,
+                      approved_skills: active
+                        ? (prev.approved_skills || []).filter(
+                            (item) => item !== skill,
+                          )
+                        : [...(prev.approved_skills || []), skill],
+                    }))
+                  }
+                  className={`inline-flex items-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    active
+                      ? "border-emerald-400/30 bg-emerald-500/20 text-emerald-200"
+                      : "border-white/10 bg-white/[0.04] text-zinc-300 hover:border-emerald-400/20 hover:text-emerald-100"
+                  }`}
+                >
+                  {skill}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
         <button
           onClick={() => onSave(row)}
-          className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 font-semibold text-black"
+          className="flex-1 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-5 py-3 font-semibold text-black"
         >
           Save Contractor
         </button>
 
         <button
           onClick={() => onDelete(contractor)}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-300"
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-5 py-3 text-sm font-semibold text-red-300 hover:bg-red-500/20"
         >
           <Trash2 className="h-4 w-4" />
           Delete Contractor Profile
@@ -3013,6 +3027,7 @@ function Field({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
         className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-white outline-none focus:border-amber-400/40"
       />
     </label>
