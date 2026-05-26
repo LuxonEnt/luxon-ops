@@ -17,7 +17,7 @@ import {
   Users,
 } from "lucide-react";
 
-const SKILL_OPTIONS = [
+const DEFAULT_SKILL_OPTIONS = [
   "A1",
   "A2",
   "L1",
@@ -246,6 +246,7 @@ export default function ManagerRequestsPage() {
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [requests, setRequests] = useState<CrewRequest[]>([]);
   const [responses, setResponses] = useState<CrewResponse[]>([]);
+  const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS);
   const [availability, setAvailability] = useState<AvailabilityItem[]>([]);
 
   const [requestForm, setRequestForm] = useState({
@@ -332,6 +333,7 @@ export default function ManagerRequestsPage() {
       { data: requestsData, error: requestsError },
       { data: responsesData, error: responsesError },
       { data: availabilityData, error: availabilityError },
+      { data: skillSetsData, error: skillSetsError },
     ] = await Promise.all([
       supabase
         .from("events")
@@ -353,6 +355,11 @@ export default function ManagerRequestsPage() {
         .from("contractor_availability")
         .select("*")
         .order("created_at", { ascending: false }),
+      supabase
+        .from("skill_sets")
+        .select("name")
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
     ]);
 
     if (
@@ -379,6 +386,12 @@ export default function ManagerRequestsPage() {
     setRequests(requestsData || []);
     setResponses(responsesData || []);
     setAvailability(availabilityData || []);
+
+    if (!skillSetsError && skillSetsData?.length) {
+      setSkillOptions(skillSetsData.map((item: any) => item.name));
+    } else {
+      setSkillOptions(DEFAULT_SKILL_OPTIONS);
+    }
 
     if ((eventsData || [])[0] && !quickAssignForm.event_id) {
       setQuickAssignForm((prev) => ({
@@ -996,7 +1009,7 @@ export default function ManagerRequestsPage() {
                     onChange={(v) =>
                       setRequestForm({ ...requestForm, required_skill: v })
                     }
-                    options={SKILL_OPTIONS.map((skill) => ({
+                    options={skillOptions.map((skill) => ({
                       value: skill,
                       label: skill,
                     }))}
@@ -1305,7 +1318,7 @@ export default function ManagerRequestsPage() {
                                     required_skill: v,
                                   })
                                 }
-                                options={SKILL_OPTIONS.map((skill) => ({
+                                options={skillOptions.map((skill) => ({
                                   value: skill,
                                   label: skill,
                                 }))}
