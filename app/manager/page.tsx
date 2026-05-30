@@ -2422,6 +2422,8 @@ function ManagerAssignmentCard({
     row.assignment_display_title || defaultDisplayTitle,
   );
   const [positionText, setPositionText] = useState(row.position || "");
+  const [editableRate, setEditableRate] = useState(String(row.rate || ""));
+  const [editableRateType, setEditableRateType] = useState(row.rate_type || "day");
   const [clockIn, setClockIn] = useState(row.clock_in || "");
   const [lunchOut, setLunchOut] = useState(row.lunch_clock_out || "");
   const [lunchIn, setLunchIn] = useState(row.lunch_clock_in || "");
@@ -2499,6 +2501,65 @@ function ManagerAssignmentCard({
           <Save className="h-4 w-4" />
           Save Position
         </button>
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-amber-400/15 bg-amber-400/[0.06] p-4">
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-amber-100">
+              Payroll Rate Override
+            </div>
+            <div className="text-xs text-zinc-400">
+              Use this when a contractor was scheduled at one rate but should be paid a different amount for this assignment.
+            </div>
+          </div>
+          <div className="text-xs text-zinc-500">
+            Current: {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-[180px_180px_auto]">
+          <Field
+            label="Pay Rate"
+            type="number"
+            value={editableRate}
+            onChange={setEditableRate}
+          />
+
+          <SelectField
+            label="Rate Type"
+            value={editableRateType}
+            onChange={setEditableRateType}
+            options={[
+              { value: "day", label: "day / flat rate" },
+              { value: "hour", label: "hourly" },
+            ]}
+          />
+
+          <button
+            onClick={() => {
+              const cleanRate = Number(editableRate || 0);
+
+              if (Number.isNaN(cleanRate) || cleanRate < 0) {
+                alert("Enter a valid pay rate.");
+                return;
+              }
+
+              onUpdateAssignment(row, {
+                rate: cleanRate,
+                rate_type: editableRateType || "day",
+              });
+            }}
+            className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200"
+          >
+            <Save className="h-4 w-4" />
+            Save Pay Rate
+          </button>
+        </div>
+
+        <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3 text-xs text-zinc-300">
+          Example: if someone was scheduled at $300/day but only worked a half day, change the rate to $150 and keep the rate type as day/flat rate.
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-4">
