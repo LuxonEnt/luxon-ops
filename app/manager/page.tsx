@@ -2132,6 +2132,7 @@ export default function ManagerPage() {
                         onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
                         onSendAssignmentReminder={sendAssignmentReminder}
                         onSaveTimeCorrection={saveTimeCorrection}
+                        onRefresh={loadAll}
                       />
                     ))
                   ) : (
@@ -2279,6 +2280,7 @@ function EventAssignmentGroupCard({
       reason: string;
     },
   ) => void;
+  onRefresh: () => Promise<void>;
 }) {
   const event = group.event;
   const eventName = event?.name || "Unassigned Event";
@@ -2445,6 +2447,7 @@ function ContractorEventInvoiceCard({
   onCancelAndNotifyAssignment,
   onSendAssignmentReminder,
   onSaveTimeCorrection,
+  onRefresh,
 }: {
   group: ContractorEventInvoiceGroup;
   onSaveReview: (
@@ -2473,10 +2476,67 @@ function ContractorEventInvoiceCard({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [showInvoicePreview, setShowInvoicePreview] = useState(false);
+  const [showAddAssignment, setShowAddAssignment] = useState(false);
+  const [addAssignmentForm, setAddAssignmentForm] = useState({
+    position: "",
+    work_date: "",
+    call_time: "",
+    rate: "",
+    rate_type: "day",
+    notes: "",
+  });
 
   const invoiceNumber = `LX-${group.event?.id || "EVENT"}-${group.contractor?.id || "CONTRACTOR"}`;
 
-  function openPrintableInvoice() {
+  async function addAssignmentToInvoice() {
+    if (!group.event?.id || !group.contractor?.id) {
+      alert("Missing contractor or event for this invoice group.");
+      return;
+    }
+
+    if (!addAssignmentForm.position.trim()) {
+      alert("Enter a position.");
+      return;
+    }
+
+    if (!addAssignmentForm.work_date) {
+      alert("Enter a work date.");
+      return;
+    }
+
+    const { error } = await supabase.from("assignments").insert({
+      event_id: group.event.id,
+      contractor_id: group.contractor.id,
+      position: addAssignmentForm.position.trim(),
+      work_date: addAssignmentForm.work_date || null,
+      call_time: addAssignmentForm.call_time || null,
+      rate: Number(addAssignmentForm.rate || 0),
+      rate_type: addAssignmentForm.rate_type || "day",
+      confirmed: true,
+      approved: false,
+      paid: false,
+      hours_approved: false,
+      manager_notes: addAssignmentForm.notes.trim() || null,
+    });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setAddAssignmentForm({
+      position: "",
+      work_date: "",
+      call_time: "",
+      rate: "",
+      rate_type: "day",
+      notes: "",
+    });
+    setShowAddAssignment(false);
+    await onRefresh();
+  }
+
+  function openContractorPdfPreview() {
     const escapeHtml = (value: string) =>
       value
         .replaceAll("&", "&amp;")
@@ -2485,22 +2545,28 @@ function ContractorEventInvoiceCard({
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
 
+    const logoUrl = `${window.location.origin}/luxon-logo.png`;
+
     const lineRows = group.rows
       .map(
         (row) => `
           <tr>
             <td>${escapeHtml(dateLabel(row.work_date))}</td>
-            <td>${escapeHtml(timeLabel(row.call_time))}</td>
             <td>${escapeHtml(row.position || "Assignment")}</td>
-            <td style="text-align:right;">${escapeHtml(row.billedHours.toFixed(2))}</td>
-            <td style="text-align:right;">${escapeHtml(money(Number(row.rate || 0)))} / ${escapeHtml(row.rate_type || "day")}</td>
-            <td style="text-align:right;font-weight:700;">${escapeHtml(money(row.total))}</td>
+            <td>${escapeHtml(timeLabel(row.call_time))}</td>
+            <td>${escapeHtml(timeLabel(row.clock_in))}</td>
+            <td>${escapeHtml(timeLabel(row.lunch_clock_out))}</td>
+            <td>${escapeHtml(timeLabel(row.lunch_clock_in))}</td>
+            <td>${escapeHtml(timeLabel(row.clock_out))}</td>
+            <td>${escapeHtml(row.billedHours.toFixed(2))}</td>
+            <td>${escapeHtml(money(Number(row.rate || 0)))} / ${escapeHtml(row.rate_type || "day")}</td>
+            <td>${escapeHtml(money(row.total))}</td>
           </tr>
         `,
       )
       .join("");
 
-    const printWindow = window.open("", "_blank", "width=1000,height=800");
+    const printWindow = window.open("", "_blank", "width=1100,height=850");
 
     if (!printWindow) {
       alert("Popup blocked. Please allow popups for Luxon Ops and try again.");
@@ -2508,224 +2574,261 @@ function ContractorEventInvoiceCard({
     }
 
     printWindow.document.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <title>${escapeHtml(invoiceNumber)} Contractor Invoice Preview</title>
-          <style>
-            * { box-sizing: border-box; }
-            body {
-              margin: 0;
-              padding: 40px;
-              font-family: Arial, Helvetica, sans-serif;
-              color: #111827;
-              background: #ffffff;
-            }
-            .invoice {
-              max-width: 980px;
-              margin: 0 auto;
-              border: 1px solid #e5e7eb;
-              border-radius: 18px;
-              overflow: hidden;
-            }
-            .header {
-              padding: 28px;
-              background: #0b0b0b;
-              color: #ffffff;
-              display: flex;
-              justify-content: space-between;
-              gap: 24px;
-            }
-            .brand {
-              font-size: 26px;
-              font-weight: 800;
-              letter-spacing: 0.03em;
-            }
-            .muted { color: #6b7280; }
-            .header .muted { color: #d1d5db; }
-            .section { padding: 28px; }
-            .grid {
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 22px;
-            }
-            .box {
-              border: 1px solid #e5e7eb;
-              border-radius: 14px;
-              padding: 16px;
-              background: #f9fafb;
-            }
-            .label {
-              font-size: 11px;
-              text-transform: uppercase;
-              letter-spacing: 0.12em;
-              color: #6b7280;
-              margin-bottom: 6px;
-              font-weight: 700;
-            }
-            .value {
-              font-size: 15px;
-              font-weight: 700;
-              color: #111827;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-top: 18px;
-              border: 1px solid #e5e7eb;
-              border-radius: 14px;
-              overflow: hidden;
-            }
-            th {
-              background: #f3f4f6;
-              color: #374151;
-              font-size: 11px;
-              text-transform: uppercase;
-              letter-spacing: 0.1em;
-              text-align: left;
-              padding: 12px;
-            }
-            td {
-              border-top: 1px solid #e5e7eb;
-              padding: 13px 12px;
-              font-size: 14px;
-              vertical-align: top;
-            }
-            .total-row {
-              display: flex;
-              justify-content: flex-end;
-              margin-top: 22px;
-            }
-            .total-box {
-              width: 320px;
-              border: 2px solid #111827;
-              border-radius: 14px;
-              padding: 18px;
-            }
-            .total-label {
-              font-size: 12px;
-              text-transform: uppercase;
-              letter-spacing: 0.12em;
-              color: #6b7280;
-              font-weight: 700;
-            }
-            .total-value {
-              font-size: 32px;
-              font-weight: 900;
-              margin-top: 6px;
-            }
-            .footer {
-              padding: 20px 28px;
-              background: #f9fafb;
-              border-top: 1px solid #e5e7eb;
-              font-size: 12px;
-              color: #6b7280;
-            }
-            .actions {
-              max-width: 980px;
-              margin: 20px auto 0;
-              display: flex;
-              justify-content: flex-end;
-              gap: 10px;
-            }
-            button {
-              border: 0;
-              border-radius: 10px;
-              padding: 12px 16px;
-              font-weight: 700;
-              cursor: pointer;
-            }
-            .print { background: #f2c230; color: #000; }
-            .close { background: #111827; color: #fff; }
-            @media print {
-              body { padding: 0; }
-              .actions { display: none; }
-              .invoice { border: 0; border-radius: 0; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="invoice">
-            <div class="header">
-              <div>
-                <div class="brand">Luxon Entertainment LLC</div>
-                <div class="muted">Contractor Invoice Preview</div>
-              </div>
-              <div style="text-align:right;">
-                <div class="label" style="color:#d1d5db;">Invoice Group</div>
-                <div style="font-size:18px;font-weight:800;">${escapeHtml(invoiceNumber)}</div>
-                <div class="muted">${escapeHtml(new Date().toLocaleDateString())}</div>
-              </div>
-            </div>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Luxon Contractor Invoice ${escapeHtml(invoiceNumber)}</title>
+  <style>
+    @page { size: letter; margin: 0.5in; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: white;
+      color: #0f172a;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    body { padding: 28px; }
+    .sheet {
+      width: 100%;
+      background: white;
+      page-break-after: avoid;
+      page-break-inside: avoid;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 24px;
+      margin-bottom: 24px;
+      align-items: flex-start;
+    }
+    .brand {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .logo {
+      width: 120px;
+      height: auto;
+      object-fit: contain;
+      display: block;
+    }
+    .company {
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    .subtle {
+      color: #64748b;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .approved { text-align: right; }
+    .approved .big {
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .label {
+      color: #94a3b8;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    .value-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 24px;
+      font-size: 12px;
+    }
+    thead tr {
+      background: #f1f5f9;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: top;
+    }
+    th:last-child, td:last-child { text-align: right; }
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 16px;
+      align-items: start;
+    }
+    .summary {
+      background: #f8fafc;
+      border-radius: 16px;
+      padding: 18px;
+    }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    .summary-total {
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid #cbd5e1;
+      padding-top: 12px;
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .footer {
+      margin-top: 28px;
+      color: #64748b;
+      font-size: 12px;
+    }
+    .actions {
+      margin-top: 22px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .print { background: #f2c230; color: #000; }
+    .close { background: #0f172a; color: #fff; }
+    @media print {
+      body { padding: 0; }
+      .actions { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="header">
+      <div class="brand">
+        <img src="${escapeHtml(logoUrl)}" alt="Luxon Entertainment Logo" class="logo" />
+        <div>
+          <div class="company">Luxon Entertainment LLC</div>
+          <div class="subtle">Contractor Pay Stub / Invoice Record</div>
+          <div class="subtle" style="margin-top: 10px;">Generated: ${escapeHtml(
+            new Date().toLocaleDateString("en-US")
+          )}</div>
+        </div>
+      </div>
 
-            <div class="section">
-              <div class="grid">
-                <div class="box">
-                  <div class="label">Contractor</div>
-                  <div class="value">${escapeHtml(group.contractor?.name || "Contractor")}</div>
-                  <div class="muted">${escapeHtml(group.contractor?.email || "No email")}</div>
-                  <div class="muted">${escapeHtml(group.contractor?.phone || "")}</div>
-                </div>
+      <div class="approved">
+        <div class="big">APPROVED</div>
+        <div class="subtle" style="margin-top: 10px;">Record ${escapeHtml(invoiceNumber)}</div>
+      </div>
+    </div>
 
-                <div class="box">
-                  <div class="label">Event</div>
-                  <div class="value">${escapeHtml(group.event?.name || "Event")}</div>
-                  <div class="muted">${escapeHtml(group.event?.venue || "")}</div>
-                  <div class="muted">${escapeHtml(group.event?.address || "")}</div>
-                </div>
-              </div>
+    <div class="grid">
+      <div class="card">
+        <div class="label">Contractor</div>
+        <div class="value-title">${escapeHtml(group.contractor?.name || "--")}</div>
+        <div>${escapeHtml(group.contractor?.email || "")}</div>
+        <div>${escapeHtml(group.contractor?.phone || "")}</div>
+        <div>${escapeHtml(
+          `${group.contractor?.city || ""}${
+            group.contractor?.state ? `, ${group.contractor.state}` : ""
+          }`
+        )}</div>
+      </div>
 
-              <div style="margin-top:22px;" class="box">
-                <div class="label">Invoice Notes</div>
-                <div class="value">One invoice for this contractor for this event.</div>
-                <div class="muted">
-                  Includes multiple work dates and different positions as line items.
-                </div>
-              </div>
+      <div class="card">
+        <div class="label">Event</div>
+        <div class="value-title">${escapeHtml(group.event?.name || "--")}</div>
+        <div>${escapeHtml(group.event?.client || "")}</div>
+        <div>${escapeHtml(group.event?.venue || "")}</div>
+        <div>${escapeHtml(group.event?.address || "")}</div>
+      </div>
+    </div>
 
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Call Time</th>
-                    <th>Position</th>
-                    <th style="text-align:right;">Hours</th>
-                    <th style="text-align:right;">Rate</th>
-                    <th style="text-align:right;">Line Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${lineRows}
-                </tbody>
-              </table>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Position</th>
+          <th>Call Time</th>
+          <th>Clock In</th>
+          <th>Lunch Out</th>
+          <th>Lunch In</th>
+          <th>Clock Out</th>
+          <th>Hours</th>
+          <th>Rate</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${lineRows}
+      </tbody>
+    </table>
 
-              <div class="total-row">
-                <div class="total-box">
-                  <div class="total-label">Invoice Total</div>
-                  <div class="total-value">${escapeHtml(money(group.invoiceTotal))}</div>
-                  <div class="muted">${escapeHtml(group.totalHours.toFixed(2))} approved/billed hours total</div>
-                </div>
-              </div>
-            </div>
+    <div class="bottom-grid">
+      <div class="card">
+        <div class="label">Notes</div>
+        <div>
+          This is the contractor invoice/pay stub preview for this event. Multiple days and positions are shown as invoice line items.
+        </div>
+        <div style="margin-top: 12px;">
+          Payment Terms: All Luxon Entertainment shows are paid on Net 30 terms unless otherwise agreed in writing.
+        </div>
+      </div>
 
-            <div class="footer">
-              Manager review only. Confirm all line items, pay rates, approved hours, invoice approval status, and paid status before processing payment.
-              <br />
-              Luxon Entertainment LLC · Luxon.entertainment@gmail.com · (562) 391-6933
-            </div>
-          </div>
+      <div class="summary">
+        <div class="summary-row">
+          <span>Total Hours</span>
+          <strong>${escapeHtml(group.totalHours.toFixed(2))}</strong>
+        </div>
+        <div class="summary-row">
+          <span>Line Items</span>
+          <strong>${escapeHtml(String(group.rows.length))}</strong>
+        </div>
+        <div class="summary-total">
+          <span>Total</span>
+          <span>${escapeHtml(money(group.invoiceTotal))}</span>
+        </div>
+      </div>
+    </div>
 
-          <div class="actions">
-            <button class="print" onclick="window.print()">Print / Save PDF</button>
-            <button class="close" onclick="window.close()">Close</button>
-          </div>
-        </body>
-      </html>
+    <div class="footer">
+      Luxon Entertainment LLC · Luxon.entertainment@gmail.com · (562) 391-6933
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="print" onclick="window.print()">View Contractor PDF</button>
+    <button class="close" onclick="window.close()">Close</button>
+  </div>
+</body>
+</html>
     `);
 
     printWindow.document.close();
     printWindow.focus();
   }
+
 
   const allHoursApproved =
     group.rows.length > 0 && group.rows.every((row) => row.hours_approved);
@@ -2798,19 +2901,20 @@ function ContractorEventInvoiceCard({
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
-        <div className="grid grid-cols-[1.1fr_1.3fr_0.8fr_0.8fr_0.8fr] gap-3 bg-white/[0.04] px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+        <div className="grid grid-cols-[1.1fr_1.3fr_0.8fr_0.8fr_0.8fr_0.6fr] gap-3 bg-white/[0.04] px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
           <div>Date</div>
           <div>Position</div>
           <div>Hours</div>
           <div>Rate</div>
           <div className="text-right">Line Total</div>
+          <div className="text-right">Remove</div>
         </div>
 
         <div className="divide-y divide-white/10">
           {group.rows.map((row) => (
             <div
               key={row.id}
-              className="grid grid-cols-1 gap-2 px-4 py-3 text-sm md:grid-cols-[1.1fr_1.3fr_0.8fr_0.8fr_0.8fr] md:gap-3"
+              className="grid grid-cols-1 gap-2 px-4 py-3 text-sm md:grid-cols-[1.1fr_1.3fr_0.8fr_0.8fr_0.8fr_0.6fr] md:gap-3"
             >
               <div>
                 <div className="font-semibold text-white">
@@ -2856,6 +2960,15 @@ function ContractorEventInvoiceCard({
                   {row.approved ? "Approved" : "Pending"} · {row.paid ? "Paid" : "Unpaid"}
                 </div>
               </div>
+
+              <div className="text-left md:text-right">
+                <button
+                  onClick={() => onDeleteAssignment(row.id)}
+                  className="inline-flex items-center justify-center rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-500/20"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -2871,6 +2984,14 @@ function ContractorEventInvoiceCard({
         </button>
 
         <button
+          onClick={() => setShowAddAssignment((prev) => !prev)}
+          className="inline-flex items-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200"
+        >
+          <Plus className="h-4 w-4" />
+          {showAddAssignment ? "Cancel Add Assignment" : "Add Assignment"}
+        </button>
+
+        <button
           onClick={() => setShowInvoicePreview(true)}
           className="inline-flex items-center gap-2 rounded-2xl border border-blue-400/20 bg-blue-400/10 px-4 py-2 text-sm font-semibold text-blue-200"
         >
@@ -2879,11 +3000,11 @@ function ContractorEventInvoiceCard({
         </button>
 
         <button
-          onClick={openPrintableInvoice}
+          onClick={openContractorPdfPreview}
           className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
         >
           <FileText className="h-4 w-4" />
-          Print / Save PDF
+          View Contractor PDF
         </button>
 
         <button
@@ -2919,6 +3040,93 @@ function ContractorEventInvoiceCard({
         </button>
       </div>
 
+      {showAddAssignment ? (
+        <div className="mt-5 rounded-3xl border border-emerald-400/20 bg-emerald-400/[0.06] p-5">
+          <div className="mb-4">
+            <div className="text-lg font-semibold text-emerald-100">
+              Add Assignment to This Invoice
+            </div>
+            <div className="text-sm text-zinc-400">
+              This adds a new line item for {group.contractor?.name || "this contractor"} under {group.event?.name || "this event"}.
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <Field
+              label="Position"
+              value={addAssignmentForm.position}
+              onChange={(v) =>
+                setAddAssignmentForm({ ...addAssignmentForm, position: v })
+              }
+            />
+
+            <Field
+              label="Work Date"
+              type="date"
+              value={addAssignmentForm.work_date}
+              onChange={(v) =>
+                setAddAssignmentForm({ ...addAssignmentForm, work_date: v })
+              }
+            />
+
+            <Field
+              label="Call Time"
+              type="time"
+              value={addAssignmentForm.call_time}
+              onChange={(v) =>
+                setAddAssignmentForm({ ...addAssignmentForm, call_time: v })
+              }
+            />
+
+            <Field
+              label="Rate"
+              type="number"
+              value={addAssignmentForm.rate}
+              onChange={(v) =>
+                setAddAssignmentForm({ ...addAssignmentForm, rate: v })
+              }
+            />
+
+            <SelectField
+              label="Rate Type"
+              value={addAssignmentForm.rate_type}
+              onChange={(v) =>
+                setAddAssignmentForm({ ...addAssignmentForm, rate_type: v })
+              }
+              options={[
+                { value: "day", label: "day / flat rate" },
+                { value: "hour", label: "hourly" },
+              ]}
+            />
+
+            <Field
+              label="Manager Notes"
+              value={addAssignmentForm.notes}
+              onChange={(v) =>
+                setAddAssignmentForm({ ...addAssignmentForm, notes: v })
+              }
+            />
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={addAssignmentToInvoice}
+              className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-5 py-3 text-sm font-semibold text-black"
+            >
+              <Plus className="h-4 w-4" />
+              Add to Invoice
+            </button>
+
+            <button
+              onClick={() => setShowAddAssignment(false)}
+              className="rounded-2xl border border-white/10 bg-white/[0.05] px-5 py-3 text-sm font-semibold text-white"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {showInvoicePreview ? (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-sm">
           <div className="my-8 w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl">
@@ -2934,10 +3142,10 @@ function ContractorEventInvoiceCard({
 
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={openPrintableInvoice}
+                  onClick={openContractorPdfPreview}
                   className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-2 text-sm font-semibold text-black"
                 >
-                  Print / Save PDF
+                  View Contractor PDF
                 </button>
 
                 <button
