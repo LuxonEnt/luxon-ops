@@ -2280,7 +2280,7 @@ function EventAssignmentGroupCard({
       reason: string;
     },
   ) => void;
-  onRefresh: () => Promise<void>;
+  onRefresh?: () => Promise<void>;
 }) {
   const event = group.event;
   const eventName = event?.name || "Unassigned Event";
@@ -2533,7 +2533,9 @@ function ContractorEventInvoiceCard({
       notes: "",
     });
     setShowAddAssignment(false);
-    await onRefresh();
+    if (onRefresh) {
+      await onRefresh();
+    }
   }
 
   function openContractorPdfPreview() {
