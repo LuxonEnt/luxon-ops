@@ -126,6 +126,18 @@ type ContractorEventInvoiceGroup = {
   latestDate?: string | null;
 };
 
+type ClientLaborInvoiceGroup = {
+  key: string;
+  event?: EventItem;
+  rows: AssignmentRow[];
+  laborTotal: number;
+  totalHours: number;
+  contractorCount: number;
+  positionCount: number;
+  earliestDate?: string | null;
+  latestDate?: string | null;
+};
+
 type AvailabilityItem = {
   id: number;
   contractor_id: number;
@@ -1426,6 +1438,56 @@ export default function ManagerPage() {
       });
   }, [filteredAssignments]);
 
+  const clientLaborInvoiceGroups: ClientLaborInvoiceGroup[] = useMemo(() => {
+    const groupMap: Record<string, AssignmentRow[]> = {};
+
+    filteredAssignments
+      .filter((row) => row.approved)
+      .forEach((row) => {
+        const key = row.event_id ? String(row.event_id) : `no-event-${row.id}`;
+        if (!groupMap[key]) groupMap[key] = [];
+        groupMap[key].push(row);
+      });
+
+    return Object.entries(groupMap)
+      .map(([key, rows]) => {
+        const sortedRows = [...rows].sort((a, b) => {
+          const dateA = `${a.work_date || "9999-12-31"} ${a.call_time || "99:99"} ${a.contractor?.name || ""}`;
+          const dateB = `${b.work_date || "9999-12-31"} ${b.call_time || "99:99"} ${b.contractor?.name || ""}`;
+          return dateA.localeCompare(dateB);
+        });
+
+        const dates = sortedRows
+          .map((row) => row.work_date)
+          .filter(Boolean) as string[];
+
+        const contractorNames = new Set(
+          sortedRows.map((row) => row.contractor?.name || "Contractor"),
+        );
+
+        const positions = new Set(
+          sortedRows.map((row) => row.position || "Assignment"),
+        );
+
+        return {
+          key,
+          event: sortedRows[0]?.event,
+          rows: sortedRows,
+          laborTotal: sortedRows.reduce((sum, row) => sum + row.total, 0),
+          totalHours: sortedRows.reduce((sum, row) => sum + row.billedHours, 0),
+          contractorCount: contractorNames.size,
+          positionCount: positions.size,
+          earliestDate: dates.length ? dates.sort()[0] : null,
+          latestDate: dates.length ? dates.sort()[dates.length - 1] : null,
+        };
+      })
+      .sort((a, b) => {
+        const dateA = a.earliestDate || "9999-12-31";
+        const dateB = b.earliestDate || "9999-12-31";
+        return dateA.localeCompare(dateB);
+      });
+  }, [filteredAssignments]);
+
   function toggleScheduleGroup(key: string) {
     setExpandedScheduleEventIds((prev) => ({
       ...prev,
@@ -2112,34 +2174,54 @@ export default function ManagerPage() {
             )}
 
             {activeTab === "Invoices" && (
-              <GlassCard>
-                <SectionTitle
-                  icon={<FileText className="h-5 w-5" />}
-                  title="Invoices"
-                  subtitle="Approve hours, approve invoices, mark paid, delete assignments, and adjust manager-approved hours"
-                />
+              <div className="space-y-6">
+                <GlassCard>
+                  <SectionTitle
+                    icon={<FileText className="h-5 w-5" />}
+                    title="Client Labor Invoices"
+                    subtitle="Approved assignments grouped into one labor invoice per event for client billing"
+                  />
 
-                <div className="mt-5 space-y-4">
-                  {invoiceGroups.length ? (
-                    invoiceGroups.map((group) => (
-                      <ContractorEventInvoiceCard
-                        key={group.key}
-                        group={group}
-                        onSaveReview={saveManagerReview}
-                        onApproveHours={approveHours}
-                        onUpdateAssignment={updateAssignment}
-                        onDeleteAssignment={deleteAssignment}
-                        onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
-                        onSendAssignmentReminder={sendAssignmentReminder}
-                        onSaveTimeCorrection={saveTimeCorrection}
-                        onRefresh={loadAll}
-                      />
-                    ))
-                  ) : (
-                    <EmptyState text="No invoice records yet." />
-                  )}
-                </div>
-              </GlassCard>
+                  <div className="mt-5 space-y-4">
+                    {clientLaborInvoiceGroups.length ? (
+                      clientLaborInvoiceGroups.map((group) => (
+                        <ClientLaborInvoiceCard key={group.key} group={group} />
+                      ))
+                    ) : (
+                      <EmptyState text="No approved assignments ready for client labor invoicing." />
+                    )}
+                  </div>
+                </GlassCard>
+
+                <GlassCard>
+                  <SectionTitle
+                    icon={<FileText className="h-5 w-5" />}
+                    title="Contractor Invoices"
+                    subtitle="Review contractor invoices, add/remove line items, view contractor PDF previews, approve invoices, and mark paid"
+                  />
+
+                  <div className="mt-5 space-y-4">
+                    {invoiceGroups.length ? (
+                      invoiceGroups.map((group) => (
+                        <ContractorEventInvoiceCard
+                          key={group.key}
+                          group={group}
+                          onSaveReview={saveManagerReview}
+                          onApproveHours={approveHours}
+                          onUpdateAssignment={updateAssignment}
+                          onDeleteAssignment={deleteAssignment}
+                          onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
+                          onSendAssignmentReminder={sendAssignmentReminder}
+                          onSaveTimeCorrection={saveTimeCorrection}
+                          onRefresh={loadAll}
+                        />
+                      ))
+                    ) : (
+                      <EmptyState text="No contractor invoice records yet." />
+                    )}
+                  </div>
+                </GlassCard>
+              </div>
             )}
 
             {activeTab === "Documents" && (
@@ -2432,6 +2514,446 @@ function EventAssignmentGroupCard({
               ))}
             </div>
           )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
+  const [showPreview, setShowPreview] = useState(false);
+
+  const clientInvoiceNumber = `CLIENT-${group.event?.id || "EVENT"}-${new Date()
+    .toISOString()
+    .slice(0, 10)
+    .replaceAll("-", "")}`;
+
+  const dateRange =
+    group.earliestDate && group.latestDate && group.earliestDate !== group.latestDate
+      ? `${dateLabel(group.earliestDate)} - ${dateLabel(group.latestDate)}`
+      : dateLabel(group.earliestDate);
+
+  const groupedByDate = group.rows.reduce<Record<string, AssignmentRow[]>>(
+    (acc, row) => {
+      const key = row.work_date || "No Date";
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(row);
+      return acc;
+    },
+    {},
+  );
+
+  function openClientLaborPdf() {
+    const escapeHtml = (value: string) =>
+      value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+
+    const logoUrl = `${window.location.origin}/luxon-logo.png`;
+
+    const lineRows = group.rows
+      .map(
+        (row) => `
+          <tr>
+            <td>${escapeHtml(dateLabel(row.work_date))}</td>
+            <td>${escapeHtml(row.contractor?.name || "Contractor")}</td>
+            <td>${escapeHtml(row.position || "Labor")}</td>
+            <td>${escapeHtml(timeLabel(row.call_time))}</td>
+            <td style="text-align:right;">${escapeHtml(row.billedHours.toFixed(2))}</td>
+            <td style="text-align:right;">${escapeHtml(money(Number(row.rate || 0)))} / ${escapeHtml(row.rate_type || "day")}</td>
+            <td style="text-align:right;font-weight:700;">${escapeHtml(money(row.total))}</td>
+          </tr>
+        `,
+      )
+      .join("");
+
+    const printWindow = window.open("", "_blank", "width=1100,height=850");
+
+    if (!printWindow) {
+      alert("Popup blocked. Please allow popups for Luxon Ops and try again.");
+      return;
+    }
+
+    printWindow.document.write(`
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Luxon Client Labor Invoice ${escapeHtml(clientInvoiceNumber)}</title>
+  <style>
+    @page { size: letter; margin: 0.5in; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: white;
+      color: #0f172a;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    body { padding: 28px; }
+    .sheet {
+      width: 100%;
+      background: white;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 24px;
+      margin-bottom: 24px;
+      align-items: flex-start;
+    }
+    .brand {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .logo {
+      width: 120px;
+      height: auto;
+      object-fit: contain;
+      display: block;
+    }
+    .company {
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    .subtle {
+      color: #64748b;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .invoice-title {
+      text-align: right;
+    }
+    .invoice-title .big {
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .label {
+      color: #94a3b8;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    .value-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 24px;
+      font-size: 12px;
+    }
+    thead tr {
+      background: #f1f5f9;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: top;
+    }
+    th:last-child, td:last-child { text-align: right; }
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 16px;
+      align-items: start;
+    }
+    .summary {
+      background: #f8fafc;
+      border-radius: 16px;
+      padding: 18px;
+      border: 1px solid #e2e8f0;
+    }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    .summary-total {
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid #cbd5e1;
+      padding-top: 12px;
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .footer {
+      margin-top: 28px;
+      color: #64748b;
+      font-size: 12px;
+    }
+    .actions {
+      margin-top: 22px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .print { background: #f2c230; color: #000; }
+    .close { background: #0f172a; color: #fff; }
+    @media print {
+      body { padding: 0; }
+      .actions { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="header">
+      <div class="brand">
+        <img src="${escapeHtml(logoUrl)}" alt="Luxon Entertainment Logo" class="logo" />
+        <div>
+          <div class="company">Luxon Entertainment LLC</div>
+          <div class="subtle">Client Labor Invoice</div>
+          <div class="subtle" style="margin-top: 10px;">Generated: ${escapeHtml(
+            new Date().toLocaleDateString("en-US"),
+          )}</div>
+        </div>
+      </div>
+
+      <div class="invoice-title">
+        <div class="big">LABOR INVOICE</div>
+        <div class="subtle" style="margin-top: 10px;">${escapeHtml(clientInvoiceNumber)}</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="label">Bill To / Client</div>
+        <div class="value-title">${escapeHtml(group.event?.client || group.event?.name || "Client")}</div>
+        <div>${escapeHtml(group.event?.name || "")}</div>
+        <div>${escapeHtml(group.event?.venue || "")}</div>
+        <div>${escapeHtml(group.event?.address || "")}</div>
+      </div>
+
+      <div class="card">
+        <div class="label">Invoice Summary</div>
+        <div class="value-title">${escapeHtml(dateRange)}</div>
+        <div>${escapeHtml(String(group.rows.length))} approved labor line item(s)</div>
+        <div>${escapeHtml(String(group.contractorCount))} contractor(s)</div>
+        <div>${escapeHtml(group.totalHours.toFixed(2))} approved/billed labor hour(s)</div>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Contractor</th>
+          <th>Position</th>
+          <th>Call Time</th>
+          <th style="text-align:right;">Hours</th>
+          <th style="text-align:right;">Rate</th>
+          <th style="text-align:right;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${lineRows}
+      </tbody>
+    </table>
+
+    <div class="bottom-grid">
+      <div class="card">
+        <div class="label">Labor Billing Notes</div>
+        <div>
+          This labor invoice includes approved Luxon Ops assignments only. Multiple contractors, dates, and positions are combined into one client-facing labor invoice for this event.
+        </div>
+        <div style="margin-top: 12px;">
+          Please review totals before sending to client accounting.
+        </div>
+      </div>
+
+      <div class="summary">
+        <div class="summary-row">
+          <span>Total Hours</span>
+          <strong>${escapeHtml(group.totalHours.toFixed(2))}</strong>
+        </div>
+        <div class="summary-row">
+          <span>Labor Line Items</span>
+          <strong>${escapeHtml(String(group.rows.length))}</strong>
+        </div>
+        <div class="summary-row">
+          <span>Contractors</span>
+          <strong>${escapeHtml(String(group.contractorCount))}</strong>
+        </div>
+        <div class="summary-total">
+          <span>Total</span>
+          <span>${escapeHtml(money(group.laborTotal))}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      Luxon Entertainment LLC · Luxon.entertainment@gmail.com · (562) 391-6933
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="print" onclick="window.print()">Print / Save PDF</button>
+    <button class="close" onclick="window.close()">Close</button>
+  </div>
+</body>
+</html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+  }
+
+  return (
+    <div className="rounded-3xl border border-amber-400/15 bg-amber-400/[0.06] p-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-xl font-bold text-white">
+              {group.event?.name || "Event"}
+            </div>
+            <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
+              Client Labor Invoice
+            </span>
+          </div>
+
+          <div className="mt-1 text-sm text-zinc-400">
+            Client: {group.event?.client || "--"} · {group.event?.venue || "--"}
+          </div>
+
+          <div className="mt-1 text-xs text-zinc-500">
+            {dateRange} · {group.rows.length} approved line item{group.rows.length === 1 ? "" : "s"} · {group.contractorCount} contractor{group.contractorCount === 1 ? "" : "s"}
+          </div>
+        </div>
+
+        <div className="text-left xl:text-right">
+          <div className="text-3xl font-bold text-amber-300">
+            {money(group.laborTotal)}
+          </div>
+          <div className="text-xs text-zinc-500">
+            {group.totalHours.toFixed(2)} approved/billed labor hrs
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <MiniInfo
+          icon={<FileText className="h-4 w-4" />}
+          label="Client"
+          value={group.event?.client || "--"}
+        />
+        <MiniInfo
+          icon={<CalendarDays className="h-4 w-4" />}
+          label="Dates"
+          value={dateRange}
+        />
+        <MiniInfo
+          icon={<Users className="h-4 w-4" />}
+          label="Contractors"
+          value={String(group.contractorCount)}
+        />
+        <MiniInfo
+          icon={<DollarSign className="h-4 w-4" />}
+          label="Labor Total"
+          value={money(group.laborTotal)}
+        />
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
+        <div className="grid grid-cols-[1fr_1.2fr_1.1fr_0.8fr_0.8fr] gap-3 bg-white/[0.04] px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          <div>Date</div>
+          <div>Contractor</div>
+          <div>Position</div>
+          <div className="text-right">Hours</div>
+          <div className="text-right">Amount</div>
+        </div>
+
+        <div className="divide-y divide-white/10">
+          {Object.entries(groupedByDate).map(([date, rows]) =>
+            rows.map((row) => (
+              <div
+                key={row.id}
+                className="grid grid-cols-1 gap-2 px-4 py-3 text-sm md:grid-cols-[1fr_1.2fr_1.1fr_0.8fr_0.8fr] md:gap-3"
+              >
+                <div className="font-semibold text-white">
+                  {dateLabel(date)}
+                </div>
+                <div>
+                  <div className="font-semibold text-white">
+                    {row.contractor?.name || "Contractor"}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {row.contractor?.email || ""}
+                  </div>
+                </div>
+                <div>
+                  <div className="font-semibold text-white">
+                    {row.position || "Labor"}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+                  </div>
+                </div>
+                <div className="text-left font-semibold text-white md:text-right">
+                  {row.billedHours.toFixed(2)}
+                </div>
+                <div className="text-left font-bold text-amber-300 md:text-right">
+                  {money(row.total)}
+                </div>
+              </div>
+            )),
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          onClick={() => setShowPreview((prev) => !prev)}
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+        >
+          <ChevronDown className={`h-4 w-4 transition ${showPreview ? "rotate-180" : ""}`} />
+          {showPreview ? "Hide Details" : "Show Details"}
+        </button>
+
+        <button
+          onClick={openClientLaborPdf}
+          className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-2 text-sm font-semibold text-black"
+        >
+          <FileText className="h-4 w-4" />
+          View Client Labor PDF
+        </button>
+      </div>
+
+      {showPreview ? (
+        <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-zinc-300">
+          This client invoice pulls only assignments marked approved in Luxon Ops. If a contractor assignment is missing, approve the contractor invoice/assignment first.
         </div>
       ) : null}
     </div>
