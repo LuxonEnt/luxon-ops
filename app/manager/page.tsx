@@ -2472,6 +2472,260 @@ function ContractorEventInvoiceCard({
   ) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [showInvoicePreview, setShowInvoicePreview] = useState(false);
+
+  const invoiceNumber = `LX-${group.event?.id || "EVENT"}-${group.contractor?.id || "CONTRACTOR"}`;
+
+  function openPrintableInvoice() {
+    const escapeHtml = (value: string) =>
+      value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+
+    const lineRows = group.rows
+      .map(
+        (row) => `
+          <tr>
+            <td>${escapeHtml(dateLabel(row.work_date))}</td>
+            <td>${escapeHtml(timeLabel(row.call_time))}</td>
+            <td>${escapeHtml(row.position || "Assignment")}</td>
+            <td style="text-align:right;">${escapeHtml(row.billedHours.toFixed(2))}</td>
+            <td style="text-align:right;">${escapeHtml(money(Number(row.rate || 0)))} / ${escapeHtml(row.rate_type || "day")}</td>
+            <td style="text-align:right;font-weight:700;">${escapeHtml(money(row.total))}</td>
+          </tr>
+        `,
+      )
+      .join("");
+
+    const printWindow = window.open("", "_blank", "width=1000,height=800");
+
+    if (!printWindow) {
+      alert("Popup blocked. Please allow popups for Luxon Ops and try again.");
+      return;
+    }
+
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${escapeHtml(invoiceNumber)} Contractor Invoice Preview</title>
+          <style>
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              padding: 40px;
+              font-family: Arial, Helvetica, sans-serif;
+              color: #111827;
+              background: #ffffff;
+            }
+            .invoice {
+              max-width: 980px;
+              margin: 0 auto;
+              border: 1px solid #e5e7eb;
+              border-radius: 18px;
+              overflow: hidden;
+            }
+            .header {
+              padding: 28px;
+              background: #0b0b0b;
+              color: #ffffff;
+              display: flex;
+              justify-content: space-between;
+              gap: 24px;
+            }
+            .brand {
+              font-size: 26px;
+              font-weight: 800;
+              letter-spacing: 0.03em;
+            }
+            .muted { color: #6b7280; }
+            .header .muted { color: #d1d5db; }
+            .section { padding: 28px; }
+            .grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 22px;
+            }
+            .box {
+              border: 1px solid #e5e7eb;
+              border-radius: 14px;
+              padding: 16px;
+              background: #f9fafb;
+            }
+            .label {
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.12em;
+              color: #6b7280;
+              margin-bottom: 6px;
+              font-weight: 700;
+            }
+            .value {
+              font-size: 15px;
+              font-weight: 700;
+              color: #111827;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 18px;
+              border: 1px solid #e5e7eb;
+              border-radius: 14px;
+              overflow: hidden;
+            }
+            th {
+              background: #f3f4f6;
+              color: #374151;
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.1em;
+              text-align: left;
+              padding: 12px;
+            }
+            td {
+              border-top: 1px solid #e5e7eb;
+              padding: 13px 12px;
+              font-size: 14px;
+              vertical-align: top;
+            }
+            .total-row {
+              display: flex;
+              justify-content: flex-end;
+              margin-top: 22px;
+            }
+            .total-box {
+              width: 320px;
+              border: 2px solid #111827;
+              border-radius: 14px;
+              padding: 18px;
+            }
+            .total-label {
+              font-size: 12px;
+              text-transform: uppercase;
+              letter-spacing: 0.12em;
+              color: #6b7280;
+              font-weight: 700;
+            }
+            .total-value {
+              font-size: 32px;
+              font-weight: 900;
+              margin-top: 6px;
+            }
+            .footer {
+              padding: 20px 28px;
+              background: #f9fafb;
+              border-top: 1px solid #e5e7eb;
+              font-size: 12px;
+              color: #6b7280;
+            }
+            .actions {
+              max-width: 980px;
+              margin: 20px auto 0;
+              display: flex;
+              justify-content: flex-end;
+              gap: 10px;
+            }
+            button {
+              border: 0;
+              border-radius: 10px;
+              padding: 12px 16px;
+              font-weight: 700;
+              cursor: pointer;
+            }
+            .print { background: #f2c230; color: #000; }
+            .close { background: #111827; color: #fff; }
+            @media print {
+              body { padding: 0; }
+              .actions { display: none; }
+              .invoice { border: 0; border-radius: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="invoice">
+            <div class="header">
+              <div>
+                <div class="brand">Luxon Entertainment LLC</div>
+                <div class="muted">Contractor Invoice Preview</div>
+              </div>
+              <div style="text-align:right;">
+                <div class="label" style="color:#d1d5db;">Invoice Group</div>
+                <div style="font-size:18px;font-weight:800;">${escapeHtml(invoiceNumber)}</div>
+                <div class="muted">${escapeHtml(new Date().toLocaleDateString())}</div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="grid">
+                <div class="box">
+                  <div class="label">Contractor</div>
+                  <div class="value">${escapeHtml(group.contractor?.name || "Contractor")}</div>
+                  <div class="muted">${escapeHtml(group.contractor?.email || "No email")}</div>
+                  <div class="muted">${escapeHtml(group.contractor?.phone || "")}</div>
+                </div>
+
+                <div class="box">
+                  <div class="label">Event</div>
+                  <div class="value">${escapeHtml(group.event?.name || "Event")}</div>
+                  <div class="muted">${escapeHtml(group.event?.venue || "")}</div>
+                  <div class="muted">${escapeHtml(group.event?.address || "")}</div>
+                </div>
+              </div>
+
+              <div style="margin-top:22px;" class="box">
+                <div class="label">Invoice Notes</div>
+                <div class="value">One invoice for this contractor for this event.</div>
+                <div class="muted">
+                  Includes multiple work dates and different positions as line items.
+                </div>
+              </div>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Call Time</th>
+                    <th>Position</th>
+                    <th style="text-align:right;">Hours</th>
+                    <th style="text-align:right;">Rate</th>
+                    <th style="text-align:right;">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${lineRows}
+                </tbody>
+              </table>
+
+              <div class="total-row">
+                <div class="total-box">
+                  <div class="total-label">Invoice Total</div>
+                  <div class="total-value">${escapeHtml(money(group.invoiceTotal))}</div>
+                  <div class="muted">${escapeHtml(group.totalHours.toFixed(2))} approved/billed hours total</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="footer">
+              Manager review only. Confirm all line items, pay rates, approved hours, invoice approval status, and paid status before processing payment.
+              <br />
+              Luxon Entertainment LLC · Luxon.entertainment@gmail.com · (562) 391-6933
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="print" onclick="window.print()">Print / Save PDF</button>
+            <button class="close" onclick="window.close()">Close</button>
+          </div>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+  }
 
   const allHoursApproved =
     group.rows.length > 0 && group.rows.every((row) => row.hours_approved);
@@ -2617,6 +2871,22 @@ function ContractorEventInvoiceCard({
         </button>
 
         <button
+          onClick={() => setShowInvoicePreview(true)}
+          className="inline-flex items-center gap-2 rounded-2xl border border-blue-400/20 bg-blue-400/10 px-4 py-2 text-sm font-semibold text-blue-200"
+        >
+          <FileText className="h-4 w-4" />
+          Preview Contractor Invoice
+        </button>
+
+        <button
+          onClick={openPrintableInvoice}
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+        >
+          <FileText className="h-4 w-4" />
+          Print / Save PDF
+        </button>
+
+        <button
           onClick={() => group.rows.forEach((row) => onApproveHours(row))}
           className="inline-flex items-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200"
         >
@@ -2648,6 +2918,147 @@ function ContractorEventInvoiceCard({
           {allPaid ? "Mark Whole Invoice Unpaid" : "Mark Whole Invoice Paid"}
         </button>
       </div>
+
+      {showInvoicePreview ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-sm">
+          <div className="my-8 w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl">
+            <div className="flex flex-col gap-3 border-b border-white/10 bg-black/40 p-5 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="text-2xl font-bold text-white">
+                  Contractor Invoice Preview
+                </div>
+                <div className="text-sm text-zinc-400">
+                  Review exactly what this contractor/event invoice totals before approval or payment.
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={openPrintableInvoice}
+                  className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-2 text-sm font-semibold text-black"
+                >
+                  Print / Save PDF
+                </button>
+
+                <button
+                  onClick={() => setShowInvoicePreview(false)}
+                  className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5">
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-300">
+                      Luxon Entertainment LLC
+                    </div>
+                    <div className="mt-2 text-3xl font-bold text-white">
+                      Invoice Preview
+                    </div>
+                    <div className="mt-1 text-sm text-zinc-400">
+                      Invoice Group: {invoiceNumber}
+                    </div>
+                  </div>
+
+                  <div className="text-left lg:text-right">
+                    <div className="text-sm text-zinc-500">Invoice Total</div>
+                    <div className="text-4xl font-black text-amber-300">
+                      {money(group.invoiceTotal)}
+                    </div>
+                    <div className="text-xs text-zinc-500">
+                      {group.totalHours.toFixed(2)} approved/billed hours total
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Contractor
+                    </div>
+                    <div className="mt-2 text-lg font-bold text-white">
+                      {group.contractor?.name || "Contractor"}
+                    </div>
+                    <div className="text-sm text-zinc-400">
+                      {group.contractor?.email || "No email"}
+                    </div>
+                    <div className="text-sm text-zinc-400">
+                      {group.contractor?.phone || ""}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Event
+                    </div>
+                    <div className="mt-2 text-lg font-bold text-white">
+                      {group.event?.name || "Event"}
+                    </div>
+                    <div className="text-sm text-zinc-400">
+                      {group.event?.venue || ""}
+                    </div>
+                    <div className="text-sm text-zinc-400">
+                      {group.event?.address || ""}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 overflow-hidden rounded-2xl border border-white/10">
+                  <div className="grid grid-cols-[1fr_1fr_1.4fr_0.7fr_0.9fr_0.9fr] gap-3 bg-white/[0.05] px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    <div>Date</div>
+                    <div>Call Time</div>
+                    <div>Position</div>
+                    <div className="text-right">Hours</div>
+                    <div className="text-right">Rate</div>
+                    <div className="text-right">Line Total</div>
+                  </div>
+
+                  <div className="divide-y divide-white/10">
+                    {group.rows.map((row) => (
+                      <div
+                        key={row.id}
+                        className="grid grid-cols-1 gap-2 px-4 py-3 text-sm md:grid-cols-[1fr_1fr_1.4fr_0.7fr_0.9fr_0.9fr] md:gap-3"
+                      >
+                        <div className="font-semibold text-white">
+                          {dateLabel(row.work_date)}
+                        </div>
+                        <div className="text-zinc-300">
+                          {timeLabel(row.call_time)}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-white">
+                            {row.position || "Assignment"}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            Record #{row.id}
+                          </div>
+                        </div>
+                        <div className="text-left font-semibold text-white md:text-right">
+                          {row.billedHours.toFixed(2)}
+                        </div>
+                        <div className="text-left text-zinc-300 md:text-right">
+                          {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+                        </div>
+                        <div className="text-left font-bold text-amber-300 md:text-right">
+                          {money(row.total)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-5 rounded-2xl border border-amber-400/15 bg-amber-400/[0.08] p-4 text-sm text-amber-100">
+                  Manager check: confirm line item dates, positions, rates, approved hours, invoice approval, and paid status before processing payment.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isOpen ? (
         <div className="mt-5 space-y-4">
