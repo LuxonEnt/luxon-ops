@@ -2473,6 +2473,7 @@ function ContractorEventInvoiceCard({
       reason: string;
     },
   ) => void;
+  onRefresh?: () => Promise<void>;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [showInvoicePreview, setShowInvoicePreview] = useState(false);
@@ -2534,7 +2535,9 @@ function ContractorEventInvoiceCard({
     });
     setShowAddAssignment(false);
     if (onRefresh) {
+      if (onRefresh) {
       await onRefresh();
+    }
     }
   }
 
