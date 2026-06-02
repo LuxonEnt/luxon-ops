@@ -112,6 +112,20 @@ type EventAssignmentGroup = {
   latestDate?: string | null;
 };
 
+type ContractorEventInvoiceGroup = {
+  key: string;
+  event?: EventItem;
+  contractor?: Contractor;
+  rows: AssignmentRow[];
+  invoiceTotal: number;
+  approvedCount: number;
+  paidCount: number;
+  hoursApprovedCount: number;
+  totalHours: number;
+  earliestDate?: string | null;
+  latestDate?: string | null;
+};
+
 type AvailabilityItem = {
   id: number;
   contractor_id: number;
@@ -1365,6 +1379,53 @@ export default function ManagerPage() {
       });
   }, [filteredAssignments]);
 
+  const invoiceGroups: ContractorEventInvoiceGroup[] = useMemo(() => {
+    const groupMap: Record<string, AssignmentRow[]> = {};
+
+    filteredAssignments.forEach((row) => {
+      const key = `${row.event_id || "no-event"}-${row.contractor_id || "no-contractor"}`;
+      if (!groupMap[key]) groupMap[key] = [];
+      groupMap[key].push(row);
+    });
+
+    return Object.entries(groupMap)
+      .map(([key, rows]) => {
+        const sortedRows = [...rows].sort((a, b) => {
+          const dateA = `${a.work_date || "9999-12-31"} ${a.call_time || "99:99"} ${a.position || ""}`;
+          const dateB = `${b.work_date || "9999-12-31"} ${b.call_time || "99:99"} ${b.position || ""}`;
+          return dateA.localeCompare(dateB);
+        });
+
+        const dates = sortedRows
+          .map((row) => row.work_date)
+          .filter(Boolean) as string[];
+
+        return {
+          key,
+          event: sortedRows[0]?.event,
+          contractor: sortedRows[0]?.contractor,
+          rows: sortedRows,
+          invoiceTotal: sortedRows.reduce((sum, row) => sum + row.total, 0),
+          approvedCount: sortedRows.filter((row) => row.approved).length,
+          paidCount: sortedRows.filter((row) => row.paid).length,
+          hoursApprovedCount: sortedRows.filter((row) => row.hours_approved).length,
+          totalHours: sortedRows.reduce((sum, row) => sum + row.billedHours, 0),
+          earliestDate: dates.length ? dates.sort()[0] : null,
+          latestDate: dates.length ? dates.sort()[dates.length - 1] : null,
+        };
+      })
+      .sort((a, b) => {
+        const eventA = a.event?.name || "";
+        const eventB = b.event?.name || "";
+        const eventCompare = eventA.localeCompare(eventB);
+        if (eventCompare !== 0) return eventCompare;
+
+        const contractorA = a.contractor?.name || "";
+        const contractorB = b.contractor?.name || "";
+        return contractorA.localeCompare(contractorB);
+      });
+  }, [filteredAssignments]);
+
   function toggleScheduleGroup(key: string) {
     setExpandedScheduleEventIds((prev) => ({
       ...prev,
@@ -2058,12 +2119,12 @@ export default function ManagerPage() {
                   subtitle="Approve hours, approve invoices, mark paid, delete assignments, and adjust manager-approved hours"
                 />
 
-                <div className="mt-5 space-y-3">
-                  {assignmentRows.length ? (
-                    assignmentRows.map((row) => (
-                      <ManagerAssignmentCard
-                        key={row.id}
-                        row={row}
+                <div className="mt-5 space-y-4">
+                  {invoiceGroups.length ? (
+                    invoiceGroups.map((group) => (
+                      <ContractorEventInvoiceCard
+                        key={group.key}
+                        group={group}
                         onSaveReview={saveManagerReview}
                         onApproveHours={approveHours}
                         onUpdateAssignment={updateAssignment}
@@ -2369,6 +2430,240 @@ function EventAssignmentGroupCard({
               ))}
             </div>
           )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ContractorEventInvoiceCard({
+  group,
+  onSaveReview,
+  onApproveHours,
+  onUpdateAssignment,
+  onDeleteAssignment,
+  onCancelAndNotifyAssignment,
+  onSendAssignmentReminder,
+  onSaveTimeCorrection,
+}: {
+  group: ContractorEventInvoiceGroup;
+  onSaveReview: (
+    row: AssignmentRow,
+    managerApprovedHours: string,
+    managerNotes: string,
+  ) => void;
+  onApproveHours: (row: AssignmentRow) => void;
+  onUpdateAssignment: (
+    row: AssignmentRow,
+    updates: Partial<Assignment>,
+  ) => void;
+  onDeleteAssignment: (id: number) => void;
+  onCancelAndNotifyAssignment: (row: AssignmentRow) => void;
+  onSendAssignmentReminder: (row: AssignmentRow) => void;
+  onSaveTimeCorrection: (
+    row: AssignmentRow,
+    values: {
+      clockIn: string;
+      lunchOut: string;
+      lunchIn: string;
+      clockOut: string;
+      reason: string;
+    },
+  ) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const allHoursApproved =
+    group.rows.length > 0 && group.rows.every((row) => row.hours_approved);
+  const allInvoiceApproved =
+    group.rows.length > 0 && group.rows.every((row) => row.approved);
+  const allPaid = group.rows.length > 0 && group.rows.every((row) => row.paid);
+
+  const dateRange =
+    group.earliestDate && group.latestDate && group.earliestDate !== group.latestDate
+      ? `${dateLabel(group.earliestDate)} - ${dateLabel(group.latestDate)}`
+      : dateLabel(group.earliestDate);
+
+  const positionSummary = Array.from(
+    new Set(group.rows.map((row) => row.position || "Assignment")),
+  ).join(", ");
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/30 p-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-xl font-bold text-white">
+              {group.contractor?.name || "Contractor"}
+            </div>
+            <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
+              One Invoice / Event
+            </span>
+          </div>
+
+          <div className="mt-1 text-sm text-zinc-400">
+            {group.contractor?.email || "No email"} · {group.event?.name || "Event"}
+          </div>
+
+          <div className="mt-1 text-xs text-zinc-500">
+            {dateRange} · {group.rows.length} line item{group.rows.length === 1 ? "" : "s"} · {positionSummary}
+          </div>
+        </div>
+
+        <div className="text-left xl:text-right">
+          <div className="text-3xl font-bold text-amber-300">
+            {money(group.invoiceTotal)}
+          </div>
+          <div className="text-xs text-zinc-500">
+            {group.totalHours.toFixed(2)} approved/billed hrs total
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <MiniInfo
+          icon={<FileText className="h-4 w-4" />}
+          label="Invoice Group"
+          value={`${group.contractor?.name || "Contractor"} / ${group.event?.name || "Event"}`}
+        />
+        <MiniInfo
+          icon={<CalendarDays className="h-4 w-4" />}
+          label="Dates"
+          value={dateRange}
+        />
+        <MiniInfo
+          icon={<CheckCircle2 className="h-4 w-4" />}
+          label="Approved"
+          value={`${group.approvedCount} of ${group.rows.length}`}
+        />
+        <MiniInfo
+          icon={<DollarSign className="h-4 w-4" />}
+          label="Paid"
+          value={`${group.paidCount} of ${group.rows.length}`}
+        />
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
+        <div className="grid grid-cols-[1.1fr_1.3fr_0.8fr_0.8fr_0.8fr] gap-3 bg-white/[0.04] px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          <div>Date</div>
+          <div>Position</div>
+          <div>Hours</div>
+          <div>Rate</div>
+          <div className="text-right">Line Total</div>
+        </div>
+
+        <div className="divide-y divide-white/10">
+          {group.rows.map((row) => (
+            <div
+              key={row.id}
+              className="grid grid-cols-1 gap-2 px-4 py-3 text-sm md:grid-cols-[1.1fr_1.3fr_0.8fr_0.8fr_0.8fr] md:gap-3"
+            >
+              <div>
+                <div className="font-semibold text-white">
+                  {dateLabel(row.work_date)}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  Call {timeLabel(row.call_time)}
+                </div>
+              </div>
+
+              <div>
+                <div className="font-semibold text-white">
+                  {row.position || "Assignment"}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  Record #{row.id}
+                </div>
+              </div>
+
+              <div>
+                <div className="font-semibold text-white">
+                  {row.billedHours.toFixed(2)}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  {row.hours_approved ? "approved" : "pending"}
+                </div>
+              </div>
+
+              <div>
+                <div className="font-semibold text-white">
+                  {money(Number(row.rate || 0))}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  / {row.rate_type || "day"}
+                </div>
+              </div>
+
+              <div className="text-left md:text-right">
+                <div className="font-bold text-amber-300">
+                  {money(row.total)}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  {row.approved ? "Approved" : "Pending"} · {row.paid ? "Paid" : "Unpaid"}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          onClick={() => setIsOpen((prev) => !prev)}
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+        >
+          <ChevronDown className={`h-4 w-4 transition ${isOpen ? "rotate-180" : ""}`} />
+          {isOpen ? "Hide Line Item Editing" : "Edit Line Items"}
+        </button>
+
+        <button
+          onClick={() => group.rows.forEach((row) => onApproveHours(row))}
+          className="inline-flex items-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200"
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          {allHoursApproved ? "Hours Approved" : "Approve All Hours"}
+        </button>
+
+        <button
+          onClick={() =>
+            group.rows.forEach((row) =>
+              onUpdateAssignment(row, { approved: !allInvoiceApproved }),
+            )
+          }
+          className="inline-flex items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200"
+        >
+          <FileText className="h-4 w-4" />
+          {allInvoiceApproved ? "Unapprove Invoice" : "Approve Whole Invoice"}
+        </button>
+
+        <button
+          onClick={() =>
+            group.rows.forEach((row) =>
+              onUpdateAssignment(row, { paid: !allPaid }),
+            )
+          }
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+        >
+          <DollarSign className="h-4 w-4" />
+          {allPaid ? "Mark Whole Invoice Unpaid" : "Mark Whole Invoice Paid"}
+        </button>
+      </div>
+
+      {isOpen ? (
+        <div className="mt-5 space-y-4">
+          {group.rows.map((row) => (
+            <ManagerAssignmentCard
+              key={row.id}
+              row={row}
+              onSaveReview={onSaveReview}
+              onApproveHours={onApproveHours}
+              onUpdateAssignment={onUpdateAssignment}
+              onDeleteAssignment={onDeleteAssignment}
+              onCancelAndNotifyAssignment={onCancelAndNotifyAssignment}
+              onSendAssignmentReminder={onSendAssignmentReminder}
+              onSaveTimeCorrection={onSaveTimeCorrection}
+            />
+          ))}
         </div>
       ) : null}
     </div>
