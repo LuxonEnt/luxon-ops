@@ -12,7 +12,7 @@ const PORTAL_BACKGROUND_STYLE = {
   backgroundAttachment: "fixed",
 } as React.CSSProperties;
 
-type LoginMode = "login" | "create-password";
+type LoginMode = "login" | "create-account";
 
 function cleanEmail(value: string) {
   return value.trim().toLowerCase();
@@ -213,7 +213,7 @@ export default function LoginPage() {
 
     setLoading(false);
     setMessage(
-      "Password created. Please check your email to confirm your account, then come back and log in.",
+      "Account created. Please check your email to confirm your account, then come back and log in.",
     );
   }
 
@@ -287,16 +287,16 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => {
-                setMode("create-password");
+                setMode("create-account");
                 setMessage("");
               }}
               className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                mode === "create-password"
+                mode === "create-account"
                   ? "bg-amber-400 text-black"
                   : "text-zinc-300 hover:bg-white/[0.06]"
               }`}
             >
-              Create Password
+              Create Account
             </button>
           </div>
 
@@ -329,7 +329,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder={
-                    mode === "login" ? "Enter password" : "Create password"
+                    mode === "login" ? "Enter password" : "Create account"
                   }
                   autoComplete={
                     mode === "login" ? "current-password" : "new-password"
@@ -355,7 +355,7 @@ export default function LoginPage() {
                 ? "Please wait..."
                 : mode === "login"
                   ? "Login"
-                  : "Create Password"}
+                  : "Create Account"}
             </button>
           </form>
 
