@@ -257,6 +257,7 @@ export default function ManagerRequestsPage() {
     work_date: "",
     work_dates: "",
     call_time: "",
+    end_time: "",
     rate: "",
     rate_type: "day",
     slots: "1",
@@ -270,6 +271,7 @@ export default function ManagerRequestsPage() {
     required_skill: "",
     work_date: "",
     call_time: "",
+    end_time: "",
     rate: "",
     rate_type: "day",
   });
@@ -452,6 +454,7 @@ export default function ManagerRequestsPage() {
       required_skill: requestForm.required_skill || null,
       work_date: workDate || null,
       call_time: requestForm.call_time || null,
+      end_time: requestForm.end_time || null,
       rate: Number(requestForm.rate || 0),
       rate_type: requestForm.rate_type,
       slots: Number(requestForm.slots || 1),
@@ -503,6 +506,7 @@ export default function ManagerRequestsPage() {
         requiredSkill: requestForm.required_skill || null,
         workDate,
         callTime: requestForm.call_time || null,
+        endTime: requestForm.end_time || null,
         rate: Number(requestForm.rate || 0),
         rateType: requestForm.rate_type || "day",
         notes: requestForm.notes.trim() || null,
@@ -523,6 +527,7 @@ export default function ManagerRequestsPage() {
       work_date: "",
       work_dates: "",
       call_time: "",
+      end_time: "",
       rate: "",
       rate_type: "day",
       slots: "1",
@@ -551,6 +556,7 @@ export default function ManagerRequestsPage() {
       required_skill: request.required_skill || "",
       work_date: request.work_date || "",
       call_time: request.call_time || "",
+      end_time: request.end_time || "",
       rate: String(request.rate ?? ""),
       rate_type: request.rate_type || "day",
       slots: String(request.slots ?? 1),
@@ -570,6 +576,7 @@ export default function ManagerRequestsPage() {
       required_skill: "",
       work_date: "",
       call_time: "",
+      end_time: "",
       rate: "",
       rate_type: "day",
       slots: "1",
@@ -607,6 +614,7 @@ export default function ManagerRequestsPage() {
         required_skill: editRequestForm.required_skill || null,
         work_date: editRequestForm.work_date || null,
         call_time: editRequestForm.call_time || null,
+        end_time: editRequestForm.end_time || null,
         rate: Number(editRequestForm.rate || 0),
         rate_type: editRequestForm.rate_type || "day",
         slots,
@@ -640,6 +648,7 @@ export default function ManagerRequestsPage() {
       required_skill: request.required_skill || null,
       work_date: request.work_date || null,
       call_time: request.call_time || null,
+      end_time: request.end_time || null,
       rate: Number(request.rate || 0),
       rate_type: request.rate_type || "day",
       slots: Number(request.slots || 1),
@@ -1047,6 +1056,14 @@ export default function ManagerRequestsPage() {
                     }
                   />
                   <Field
+                    label="End Time"
+                    type="time"
+                    value={requestForm.end_time}
+                    onChange={(v) =>
+                      setRequestForm({ ...requestForm, end_time: v })
+                    }
+                  />
+                  <Field
                     label="Rate"
                     type="number"
                     value={requestForm.rate}
@@ -1349,6 +1366,18 @@ export default function ManagerRequestsPage() {
                               />
 
                               <Field
+                                label="End Time"
+                                type="time"
+                                value={editRequestForm.end_time}
+                                onChange={(v) =>
+                                  setEditRequestForm({
+                                    ...editRequestForm,
+                                    end_time: v,
+                                  })
+                                }
+                              />
+
+                              <Field
                                 label="Rate"
                                 type="number"
                                 value={editRequestForm.rate}
@@ -1455,6 +1484,11 @@ export default function ManagerRequestsPage() {
                             icon={<Clock3 className="h-4 w-4" />}
                             label="Call Time"
                             value={timeLabel(request.call_time)}
+                          />
+                          <MiniInfo
+                            icon={<Clock3 className="h-4 w-4" />}
+                            label="End Time"
+                            value={timeLabel(request.end_time)}
                           />
                           <MiniInfo
                             icon={<DollarSign className="h-4 w-4" />}
