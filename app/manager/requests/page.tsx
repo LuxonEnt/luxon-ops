@@ -59,6 +59,7 @@ type CrewRequest = {
   position: string;
   work_date: string | null;
   call_time: string | null;
+  end_time?: string | null;
   rate: number;
   rate_type: string;
   slots: number;
