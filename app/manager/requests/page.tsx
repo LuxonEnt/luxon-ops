@@ -506,7 +506,6 @@ export default function ManagerRequestsPage() {
         requiredSkill: requestForm.required_skill || null,
         workDate,
         callTime: requestForm.call_time || null,
-        endTime: requestForm.end_time || null,
         rate: Number(requestForm.rate || 0),
         rateType: requestForm.rate_type || "day",
         notes: requestForm.notes.trim() || null,
