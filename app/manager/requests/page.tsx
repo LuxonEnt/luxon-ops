@@ -284,6 +284,7 @@ export default function ManagerRequestsPage() {
     required_skill: "",
     work_date: "",
     call_time: "",
+    end_time: "",
     rate: "",
     rate_type: "day",
     slots: "1",
