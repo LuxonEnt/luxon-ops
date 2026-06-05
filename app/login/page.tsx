@@ -18,6 +18,16 @@ function cleanEmail(value: string) {
   return value.trim().toLowerCase();
 }
 
+function nameFromEmail(email: string) {
+  const localPart = email.split("@")[0] || "Contractor";
+  return localPart
+    .replace(/[._-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export default function LoginPage() {
   const [mode, setMode] = useState<LoginMode>("login");
   const [email, setEmail] = useState("");
@@ -118,12 +128,29 @@ export default function LoginPage() {
       return;
     }
 
-    await supabase.auth.signOut();
-    setLoading(false);
-    setCheckingSession(false);
-    setMessage(
-      "This email is not connected to a Luxon contractor profile. Please contact Luxon Entertainment.",
-    );
+    const { error: createContractorError } = await supabase
+      .from("contractors")
+      .insert({
+        user_id: userId,
+        email: normalizedEmail,
+        name: nameFromEmail(normalizedEmail),
+        role: "Contractor",
+        rate: 0,
+        rate_type: "day",
+        requested_skills: [],
+        approved_skills: [],
+      });
+
+    if (createContractorError) {
+      setLoading(false);
+      setCheckingSession(false);
+      setMessage(
+        `Account created, but your contractor profile could not be created: ${createContractorError.message}`,
+      );
+      return;
+    }
+
+    window.location.href = "/contractor";
   }
 
   async function handleLogin() {
@@ -158,7 +185,7 @@ export default function LoginPage() {
     await routeUser(data.user.id, data.user.email || normalizedEmail);
   }
 
-  async function handleCreatePassword() {
+  async function handleCreateAccount() {
     setMessage("");
 
     const normalizedEmail = cleanEmail(email);
@@ -174,26 +201,6 @@ export default function LoginPage() {
     }
 
     setLoading(true);
-
-    const { data: existingContractor, error: contractorError } = await supabase
-      .from("contractors")
-      .select("id,email")
-      .ilike("email", normalizedEmail)
-      .maybeSingle();
-
-    if (contractorError) {
-      setLoading(false);
-      setMessage(contractorError.message);
-      return;
-    }
-
-    if (!existingContractor) {
-      setLoading(false);
-      setMessage(
-        "This email is not connected to a Luxon contractor profile. Please contact Luxon Entertainment.",
-      );
-      return;
-    }
 
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
@@ -225,7 +232,7 @@ export default function LoginPage() {
       return;
     }
 
-    await handleCreatePassword();
+    await handleCreateAccount();
   }
 
   if (checkingSession) {
@@ -264,7 +271,7 @@ export default function LoginPage() {
             </h1>
 
             <p className="mt-2 text-sm text-zinc-400">
-              Login with email and password only.
+              Login or create an account with email and password only.
             </p>
           </div>
 
@@ -329,7 +336,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder={
-                    mode === "login" ? "Enter password" : "Create account"
+                    mode === "login" ? "Enter password" : "Create password"
                   }
                   autoComplete={
                     mode === "login" ? "current-password" : "new-password"
@@ -360,8 +367,8 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-xs leading-5 text-zinc-400">
-            Contractors only need the email Luxon has on file and a password.
-            No first name, last name, or phone number is required on this login page.
+            New contractors can create an account using this link. Their profile
+            will be created automatically after login.
           </div>
         </div>
       </div>
