@@ -84,6 +84,7 @@ type Assignment = {
   manager_approved_hours?: number | null;
   manager_notes?: string | null;
   hours_approved?: boolean | null;
+  hours_approved_at?: string | null;
   manual_time_correction?: boolean | null;
   time_correction_reason?: string | null;
   time_corrected_by?: string | null;
@@ -209,6 +210,28 @@ function dateLabel(value?: string | null) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+
+function addDaysToDate(value?: string | null, days = 30) {
+  if (!value) return null;
+
+  const date = value.includes("T")
+    ? new Date(value)
+    : new Date(`${value}T12:00:00`);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function invoiceDueDateLabel(
+  hoursApprovedAt?: string | null,
+  fallbackDate?: string | null,
+) {
+  const dueDate = addDaysToDate(hoursApprovedAt || fallbackDate, 30);
+  return dueDate ? dateLabel(dueDate) : "--";
 }
 
 function timeLabel(value?: string | null) {
@@ -1106,6 +1129,7 @@ export default function ManagerPage() {
         time_corrected_by: email,
         time_corrected_at: correctionStamp,
         hours_approved: false,
+        hours_approved_at: null,
       })
       .eq("id", row.id);
 
@@ -1256,6 +1280,7 @@ export default function ManagerPage() {
       .update({
         manager_approved_hours: approvedHours,
         hours_approved: true,
+        hours_approved_at: new Date().toISOString(),
       })
       .eq("id", row.id);
 
@@ -3087,6 +3112,7 @@ function ContractorEventInvoiceCard({
             <td>${escapeHtml(timeLabel(row.clock_out))}</td>
             <td>${escapeHtml(row.billedHours.toFixed(2))}</td>
             <td>${escapeHtml(money(Number(row.rate || 0)))} / ${escapeHtml(row.rate_type || "day")}</td>
+            <td>${escapeHtml(invoiceDueDateLabel(row.hours_approved_at, row.work_date))}</td>
             <td>${escapeHtml(money(row.total))}</td>
           </tr>
         `,
@@ -3304,6 +3330,7 @@ function ContractorEventInvoiceCard({
           <th>Clock Out</th>
           <th>Hours</th>
           <th>Rate</th>
+          <th>Due Date</th>
           <th>Amount</th>
         </tr>
       </thead>
@@ -3319,7 +3346,7 @@ function ContractorEventInvoiceCard({
           This is the contractor invoice/pay stub preview for this event. Multiple days and positions are shown as invoice line items.
         </div>
         <div style="margin-top: 12px;">
-          Payment Terms: All Luxon Entertainment shows are paid on Net 30 terms unless otherwise agreed in writing.
+          Payment Terms: All Luxon Entertainment shows are paid on Net 30 terms unless otherwise agreed in writing. Due date is usually 30 days after hours are approved.
         </div>
       </div>
 
@@ -3433,6 +3460,7 @@ function ContractorEventInvoiceCard({
           <div>Position</div>
           <div>Hours</div>
           <div>Rate</div>
+          <div>Due Date</div>
           <div className="text-right">Line Total</div>
           <div className="text-right">Remove</div>
         </div>
@@ -3476,6 +3504,15 @@ function ContractorEventInvoiceCard({
                 </div>
                 <div className="text-xs text-zinc-500">
                   / {row.rate_type || "day"}
+                </div>
+              </div>
+
+              <div>
+                <div className="font-semibold text-white">
+                  {invoiceDueDateLabel(row.hours_approved_at, row.work_date)}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  Net 30 after approved
                 </div>
               </div>
 
