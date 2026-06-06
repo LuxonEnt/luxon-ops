@@ -96,6 +96,7 @@ type Assignment = {
   manager_approved_hours?: number | null;
   manager_notes?: string | null;
   hours_approved?: boolean | null;
+  hours_approved_at?: string | null;
   manual_time_correction?: boolean | null;
   time_correction_reason?: string | null;
   time_corrected_by?: string | null;
@@ -151,6 +152,28 @@ function shortDateLabel(value?: string | null) {
     month: "short",
     day: "numeric",
   });
+}
+
+
+function addDaysToDate(value?: string | null, days = 30) {
+  if (!value) return null;
+
+  const date = value.includes("T")
+    ? new Date(value)
+    : new Date(`${value}T12:00:00`);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function invoiceDueDateLabel(
+  hoursApprovedAt?: string | null,
+  fallbackDate?: string | null,
+) {
+  const dueDate = addDaysToDate(hoursApprovedAt || fallbackDate, 30);
+  return dueDate ? dateLabel(dueDate) : "--";
 }
 
 function timeLabel(value?: string | null) {
@@ -464,6 +487,7 @@ function buildInvoiceHtml(
           <th>Clock Out</th>
           <th>Hours</th>
           <th>Rate</th>
+          <th>Due Date</th>
           <th>Amount</th>
         </tr>
       </thead>
@@ -531,7 +555,7 @@ function buildInvoiceHtml(
 
     <div class="footer">
       This record is generated from the contractor portal for your files.<br />
-      Payment Terms: All Luxon Entertainment shows are paid on Net 30 terms unless otherwise agreed in writing.
+      Payment Terms: All Luxon Entertainment shows are paid on Net 30 terms unless otherwise agreed in writing. Due date is usually 30 days after hours are approved.
     </div>
   </div>
 </body>
@@ -2433,7 +2457,7 @@ function InvoiceModal({
           <div className="mt-8 text-xs text-slate-500">
             This record is generated from the contractor portal for your files.
             <br />
-            Payment Terms: All Luxon Entertainment shows are paid on Net 30 terms unless otherwise agreed in writing.
+            Payment Terms: All Luxon Entertainment shows are paid on Net 30 terms unless otherwise agreed in writing. Due date is usually 30 days after hours are approved.
           </div>
         </div>
       </div>
