@@ -2656,7 +2656,7 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
       (sum, row) => sum + (row.paid ? 0 : row.total),
       0,
     );
-    const groupedPaidTotal = group.invoiceTotal - groupedBalanceDue;
+    const groupedPaidTotal = group.laborTotal - groupedBalanceDue;
 
     const lineRows = group.rows
       .map(
