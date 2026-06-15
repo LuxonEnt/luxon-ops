@@ -433,6 +433,51 @@ async function sendAssignmentReminderEmail(payload: AssignmentEmailPayload) {
   }
 }
 
+type InvoicePaidEmailPayload = {
+  contractorName?: string | null;
+  contractorEmail?: string | null;
+  eventName?: string | null;
+  venue?: string | null;
+  position?: string | null;
+  workDate?: string | null;
+  invoiceNumber?: string | null;
+  invoiceTotal?: number | string | null;
+  dueBalance?: number | string | null;
+  paidDate?: string | null;
+};
+
+async function sendInvoicePaidEmail(payload: InvoicePaidEmailPayload) {
+  if (!payload.contractorEmail) {
+    return { ok: false, error: "Contractor email is missing." };
+  }
+
+  try {
+    const response = await fetch("/api/send-invoice-paid-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: data?.error || "Invoice paid email could not be sent.",
+      };
+    }
+
+    return { ok: true, error: null };
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: error?.message || "Invoice paid email could not be sent.",
+    };
+  }
+}
+
 export default function ManagerPage() {
   const [activeTab, setActiveTab] = useState<TabName>("Overview");
   const [status, setStatus] = useState("Checking access...");
@@ -1071,6 +1116,9 @@ export default function ManagerPage() {
     row: Assignment,
     updates: Partial<Assignment>,
   ) {
+    const wasPaid = !!row.paid;
+    const isNowBeingMarkedPaid = updates.paid === true && !wasPaid;
+
     const { error } = await supabase
       .from("assignments")
       .update(updates)
@@ -1081,7 +1129,32 @@ export default function ManagerPage() {
       return;
     }
 
-    setMessage("Assignment updated.");
+    let paidEmailMessage = "";
+
+    if (isNowBeingMarkedPaid) {
+      const invoiceRow = row as AssignmentRow;
+      const emailResult = await sendInvoicePaidEmail({
+        contractorName: invoiceRow.contractor?.name || null,
+        contractorEmail: invoiceRow.contractor?.email || null,
+        eventName: invoiceRow.event?.name || null,
+        venue: invoiceRow.event?.venue || null,
+        position: invoiceRow.position || null,
+        workDate: invoiceRow.work_date || null,
+        invoiceNumber: `LX-${invoiceRow.event_id || "EVENT"}-${invoiceRow.contractor_id || "CONTRACTOR"}-${invoiceRow.id}`,
+        invoiceTotal:
+          typeof invoiceRow.total === "number"
+            ? invoiceRow.total
+            : Number(invoiceRow.rate || 0),
+        dueBalance: 0,
+        paidDate: new Date().toISOString(),
+      });
+
+      paidEmailMessage = emailResult.ok
+        ? " Invoice paid email sent to contractor."
+        : ` Invoice was marked paid, but the paid email failed: ${emailResult.error}`;
+    }
+
+    setMessage(`Assignment updated.${paidEmailMessage}`);
     await loadAll();
   }
 
@@ -2579,6 +2652,12 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
 
     const logoUrl = `${window.location.origin}/luxon-logo.png`;
 
+    const groupedBalanceDue = group.rows.reduce(
+      (sum, row) => sum + (row.paid ? 0 : row.total),
+      0,
+    );
+    const groupedPaidTotal = group.invoiceTotal - groupedBalanceDue;
+
     const lineRows = group.rows
       .map(
         (row) => `
@@ -3035,6 +3114,11 @@ function ContractorEventInvoiceCard({
   });
 
   const invoiceNumber = `LX-${group.event?.id || "EVENT"}-${group.contractor?.id || "CONTRACTOR"}`;
+  const balanceDue = group.rows.reduce(
+    (sum, row) => sum + (row.paid ? 0 : row.total),
+    0,
+  );
+  const paidTotal = group.invoiceTotal - balanceDue;
 
   async function addAssignmentToInvoice() {
     if (!group.event?.id || !group.contractor?.id) {
@@ -3273,8 +3357,9 @@ function ContractorEventInvoiceCard({
       </div>
 
       <div class="approved">
-        <div class="big">${escapeHtml(row.approved ? "APPROVED" : "PENDING")}</div>
+        <div class="big">${escapeHtml(row.paid ? "PAID" : row.approved ? "APPROVED" : "PENDING")}</div>
         <div class="subtle" style="margin-top: 10px;">Record ${escapeHtml(individualInvoiceNumber)}</div>
+        <div class="subtle">Balance Due: ${escapeHtml(money(row.paid ? 0 : row.total))}</div>
       </div>
     </div>
 
@@ -3355,9 +3440,17 @@ function ContractorEventInvoiceCard({
           <span>Due Date</span>
           <strong>${escapeHtml(invoiceDueDateLabel(row.hours_approved_at, row.work_date))}</strong>
         </div>
+        <div class="summary-row">
+          <span>Paid Status</span>
+          <strong>${escapeHtml(row.paid ? "Paid" : "Unpaid")}</strong>
+        </div>
+        <div class="summary-row">
+          <span>Invoice Total</span>
+          <strong>${escapeHtml(money(row.total))}</strong>
+        </div>
         <div class="summary-total">
-          <span>Total</span>
-          <span>${escapeHtml(money(row.total))}</span>
+          <span>Balance Due</span>
+          <span>${escapeHtml(money(row.paid ? 0 : row.total))}</span>
         </div>
       </div>
     </div>
@@ -3389,6 +3482,12 @@ function ContractorEventInvoiceCard({
         .replaceAll("'", "&#039;");
 
     const logoUrl = `${window.location.origin}/luxon-logo.png`;
+
+    const groupedBalanceDue = group.rows.reduce(
+      (sum, row) => sum + (row.paid ? 0 : row.total),
+      0,
+    );
+    const groupedPaidTotal = group.invoiceTotal - groupedBalanceDue;
 
     const lineRows = group.rows
       .map(
@@ -3582,8 +3681,9 @@ function ContractorEventInvoiceCard({
       </div>
 
       <div class="approved">
-        <div class="big">APPROVED</div>
+        <div class="big">${escapeHtml(groupedBalanceDue <= 0 ? "PAID" : "APPROVED")}</div>
         <div class="subtle" style="margin-top: 10px;">Record ${escapeHtml(invoiceNumber)}</div>
+        <div class="subtle">Balance Due: ${escapeHtml(money(groupedBalanceDue))}</div>
       </div>
     </div>
 
@@ -3650,9 +3750,17 @@ function ContractorEventInvoiceCard({
           <span>Line Items</span>
           <strong>${escapeHtml(String(group.rows.length))}</strong>
         </div>
+        <div class="summary-row">
+          <span>Paid Total</span>
+          <strong>${escapeHtml(money(groupedPaidTotal))}</strong>
+        </div>
+        <div class="summary-row">
+          <span>Invoice Total</span>
+          <strong>${escapeHtml(money(group.invoiceTotal))}</strong>
+        </div>
         <div class="summary-total">
-          <span>Total</span>
-          <span>${escapeHtml(money(group.invoiceTotal))}</span>
+          <span>Balance Due</span>
+          <span>${escapeHtml(money(groupedBalanceDue))}</span>
         </div>
       </div>
     </div>
@@ -3716,8 +3824,11 @@ function ContractorEventInvoiceCard({
           <div className="text-3xl font-bold text-amber-300">
             {money(group.invoiceTotal)}
           </div>
+          <div className={balanceDue <= 0 ? "text-sm font-semibold text-emerald-300" : "text-sm font-semibold text-amber-200"}>
+            Balance Due: {money(balanceDue)}
+          </div>
           <div className="text-xs text-zinc-500">
-            {group.totalHours.toFixed(2)} approved/billed hrs total
+            Paid: {money(paidTotal)} · {group.totalHours.toFixed(2)} approved/billed hrs total
           </div>
         </div>
       </div>
@@ -3742,6 +3853,11 @@ function ContractorEventInvoiceCard({
           icon={<DollarSign className="h-4 w-4" />}
           label="Paid"
           value={`${group.paidCount} of ${group.rows.length}`}
+        />
+        <MiniInfo
+          icon={<DollarSign className="h-4 w-4" />}
+          label="Balance Due"
+          value={money(balanceDue)}
         />
       </div>
 
@@ -3811,6 +3927,9 @@ function ContractorEventInvoiceCard({
               <div className="text-left md:text-right">
                 <div className="font-bold text-amber-300">
                   {money(row.total)}
+                </div>
+                <div className={row.paid ? "text-xs font-semibold text-emerald-300" : "text-xs text-zinc-500"}>
+                  Balance Due: {money(row.paid ? 0 : row.total)}
                 </div>
                 <div className="text-xs text-zinc-500">
                   {row.approved ? "Approved" : "Pending"} · {row.paid ? "Paid" : "Unpaid"}
