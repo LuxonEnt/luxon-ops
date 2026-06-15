@@ -132,7 +132,11 @@ type ClientLaborInvoiceGroup = {
   event?: EventItem;
   rows: AssignmentRow[];
   laborTotal: number;
+  paidTotal: number;
+  balanceDue: number;
   totalHours: number;
+  paidHours: number;
+  unpaidHours: number;
   contractorCount: number;
   positionCount: number;
   earliestDate?: string | null;
@@ -1567,12 +1571,29 @@ export default function ManagerPage() {
           sortedRows.map((row) => row.position || "Assignment"),
         );
 
+        const laborTotal = sortedRows.reduce((sum, row) => sum + row.total, 0);
+        const paidTotal = sortedRows.reduce(
+          (sum, row) => sum + (row.paid ? row.total : 0),
+          0,
+        );
+        const balanceDue = laborTotal - paidTotal;
+        const totalHours = sortedRows.reduce((sum, row) => sum + row.billedHours, 0);
+        const paidHours = sortedRows.reduce(
+          (sum, row) => sum + (row.paid ? row.billedHours : 0),
+          0,
+        );
+        const unpaidHours = totalHours - paidHours;
+
         return {
           key,
           event: sortedRows[0]?.event,
           rows: sortedRows,
-          laborTotal: sortedRows.reduce((sum, row) => sum + row.total, 0),
-          totalHours: sortedRows.reduce((sum, row) => sum + row.billedHours, 0),
+          laborTotal,
+          paidTotal,
+          balanceDue,
+          totalHours,
+          paidHours,
+          unpaidHours,
           contractorCount: contractorNames.size,
           positionCount: positions.size,
           earliestDate: dates.length ? dates.sort()[0] : null,
@@ -2652,11 +2673,10 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
 
     const logoUrl = `${window.location.origin}/luxon-logo.png`;
 
-    const groupedBalanceDue = group.rows.reduce(
-      (sum, row) => sum + (row.paid ? 0 : row.total),
-      0,
-    );
-    const groupedPaidTotal = group.laborTotal - groupedBalanceDue;
+    const groupedBalanceDue = group.balanceDue;
+    const groupedPaidTotal = group.paidTotal;
+    const groupedPaidHours = group.paidHours;
+    const groupedUnpaidHours = group.unpaidHours;
 
     const lineRows = group.rows
       .map(
@@ -2867,6 +2887,8 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
         <div>${escapeHtml(String(group.rows.length))} approved labor line item(s)</div>
         <div>${escapeHtml(String(group.contractorCount))} contractor(s)</div>
         <div>${escapeHtml(group.totalHours.toFixed(2))} approved/billed labor hour(s)</div>
+        <div>${escapeHtml(groupedPaidHours.toFixed(2))} paid labor hour(s)</div>
+        <div>${escapeHtml(groupedUnpaidHours.toFixed(2))} unpaid labor hour(s)</div>
       </div>
     </div>
 
@@ -2911,9 +2933,17 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
           <span>Contractors</span>
           <strong>${escapeHtml(String(group.contractorCount))}</strong>
         </div>
+        <div class="summary-row">
+          <span>Total Labor</span>
+          <strong>${escapeHtml(money(group.laborTotal))}</strong>
+        </div>
+        <div class="summary-row">
+          <span>Paid</span>
+          <strong>${escapeHtml(money(groupedPaidTotal))}</strong>
+        </div>
         <div class="summary-total">
-          <span>Total</span>
-          <span>${escapeHtml(money(group.laborTotal))}</span>
+          <span>Balance Due</span>
+          <span>${escapeHtml(money(groupedBalanceDue))}</span>
         </div>
       </div>
     </div>
@@ -2959,10 +2989,13 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
 
         <div className="text-left xl:text-right">
           <div className="text-3xl font-bold text-amber-300">
-            {money(group.laborTotal)}
+            {money(group.balanceDue)}
           </div>
           <div className="text-xs text-zinc-500">
-            {group.totalHours.toFixed(2)} approved/billed labor hrs
+            {group.unpaidHours.toFixed(2)} unpaid labor hrs
+          </div>
+          <div className="mt-1 text-[11px] text-zinc-500">
+            Paid: {money(group.paidTotal)} · Total: {money(group.laborTotal)}
           </div>
         </div>
       </div>
@@ -2985,8 +3018,8 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
         />
         <MiniInfo
           icon={<DollarSign className="h-4 w-4" />}
-          label="Labor Total"
-          value={money(group.laborTotal)}
+          label="Balance Due"
+          value={money(group.balanceDue)}
         />
       </div>
 
@@ -3057,7 +3090,21 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
 
       {showPreview ? (
         <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-zinc-300">
-          This client invoice pulls only assignments marked approved in Luxon Ops. If a contractor assignment is missing, approve the contractor invoice/assignment first.
+          <div>This client invoice pulls only assignments marked approved in Luxon Ops. If a contractor assignment is missing, approve the contractor invoice/assignment first.</div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">Total Labor</div>
+              <div className="mt-1 text-lg font-bold text-white">{money(group.laborTotal)}</div>
+            </div>
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-3">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-emerald-200/70">Paid</div>
+              <div className="mt-1 text-lg font-bold text-emerald-300">{money(group.paidTotal)}</div>
+            </div>
+            <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-amber-200/70">Balance Due</div>
+              <div className="mt-1 text-lg font-bold text-amber-300">{money(group.balanceDue)}</div>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
