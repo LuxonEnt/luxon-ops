@@ -3175,7 +3175,6 @@ function ContractorEventInvoiceCard({
   const [wholeInvoicePaidDate, setWholeInvoicePaidDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
-  const [paidDateDrafts, setPaidDateDrafts] = useState<Record<number, string>>({});
   const [addAssignmentForm, setAddAssignmentForm] = useState({
     position: "",
     work_date: "",
@@ -4016,42 +4015,46 @@ function ContractorEventInvoiceCard({
                   {row.approved ? "Approved" : "Pending"} · {row.paid ? "Paid" : "Unpaid"}
                 </div>
                 <div className="mt-2 text-left md:text-right">
-                  <label className="block">
-                    <span className="mb-1 block text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-                      Paid Date
-                    </span>
-                    <input
-                      type="date"
-                      value={paidDateDrafts[row.id] ?? dateInputValue(row.paid_at)}
-                      onChange={(event) =>
-                        setPaidDateDrafts((prev) => ({
-                          ...prev,
-                          [row.id]: event.currentTarget.value,
-                        }))
-                      }
-                      className="h-9 w-full rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-white outline-none focus:border-amber-400/40 md:w-36"
-                    />
-                  </label>
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                    Paid Date
+                  </div>
+                  <div className="mt-1 text-xs font-semibold text-white">
+                    {row.paid_at ? dateLabel(row.paid_at) : "--"}
+                  </div>
 
                   <button
                     type="button"
                     onClick={() => {
-                      const paidDate =
-                        paidDateDrafts[row.id] ?? dateInputValue(row.paid_at);
+                      const defaultDate =
+                        dateInputValue(row.paid_at) ||
+                        new Date().toISOString().slice(0, 10);
+                      const paidDate = window.prompt(
+                        "Enter paid date as YYYY-MM-DD",
+                        defaultDate,
+                      );
 
-                      if (paidDate) {
-                        onUpdateAssignment(row, {
-                          paid: true,
-                          paid_at: paidDate,
-                        });
+                      if (paidDate === null) return;
+
+                      const cleanDate = paidDate.trim();
+
+                      if (!cleanDate) {
+                        onUpdateAssignment(row, { paid_at: null });
                         return;
                       }
 
-                      onUpdateAssignment(row, { paid_at: null });
+                      if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+                        alert("Use this format: YYYY-MM-DD");
+                        return;
+                      }
+
+                      onUpdateAssignment(row, {
+                        paid: true,
+                        paid_at: cleanDate,
+                      });
                     }}
                     className="mt-2 inline-flex h-8 items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 text-[11px] font-semibold text-amber-200 hover:bg-amber-400/20"
                   >
-                    Save Date
+                    Set + Save Date
                   </button>
                 </div>
               </div>
@@ -4132,18 +4135,55 @@ function ContractorEventInvoiceCard({
         </button>
 
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2">
-          <label className="flex items-center gap-2 text-xs font-semibold text-zinc-300">
-            Paid Date
-            <input
-              type="date"
-              value={wholeInvoicePaidDate}
-              onChange={(event) => setWholeInvoicePaidDate(event.currentTarget.value)}
-              className="h-9 rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-white outline-none focus:border-amber-400/40"
-            />
-          </label>
-          <span className="text-[11px] text-zinc-500">
-            This date saves to the invoice PDF.
-          </span>
+          <div className="text-xs font-semibold text-zinc-300">
+            Paid Date: <span className="text-white">{dateLabel(wholeInvoicePaidDate)}</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const paidDate = window.prompt(
+                "Enter whole invoice paid date as YYYY-MM-DD",
+                wholeInvoicePaidDate || new Date().toISOString().slice(0, 10),
+              );
+
+              if (paidDate === null) return;
+
+              const cleanDate = paidDate.trim();
+
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+                alert("Use this format: YYYY-MM-DD");
+                return;
+              }
+
+              setWholeInvoicePaidDate(cleanDate);
+
+              group.rows.forEach((row) =>
+                onUpdateAssignment(row, {
+                  paid: true,
+                  paid_at: cleanDate,
+                }),
+              );
+            }}
+            className="inline-flex h-9 items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 text-xs font-semibold text-amber-200 hover:bg-amber-400/20"
+          >
+            Set + Save Whole Invoice Date
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              group.rows.forEach((row) =>
+                onUpdateAssignment(row, {
+                  paid: true,
+                  paid_at: wholeInvoicePaidDate || new Date().toISOString().slice(0, 10),
+                }),
+              )
+            }
+            className="inline-flex h-9 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 text-xs font-semibold text-emerald-200 hover:bg-emerald-400/20"
+          >
+            Save Date to PDF
+          </button>
 
           <button
             onClick={() =>
