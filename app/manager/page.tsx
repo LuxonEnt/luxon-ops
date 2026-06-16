@@ -3175,6 +3175,7 @@ function ContractorEventInvoiceCard({
   const [wholeInvoicePaidDate, setWholeInvoicePaidDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
+  const [paidDateDrafts, setPaidDateDrafts] = useState<Record<number, string>>({});
   const [addAssignmentForm, setAddAssignmentForm] = useState({
     position: "",
     work_date: "",
@@ -4014,15 +4015,30 @@ function ContractorEventInvoiceCard({
                 <div className="text-xs text-zinc-500">
                   {row.approved ? "Approved" : "Pending"} · {row.paid ? "Paid" : "Unpaid"}
                 </div>
-                <label className="mt-2 block text-left md:text-right">
-                  <span className="mb-1 block text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-                    Paid Date
-                  </span>
-                  <input
-                    type="date"
-                    defaultValue={dateInputValue(row.paid_at)}
-                    onBlur={(event) => {
-                      const paidDate = event.currentTarget.value;
+                <div className="mt-2 text-left md:text-right">
+                  <label className="block">
+                    <span className="mb-1 block text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                      Paid Date
+                    </span>
+                    <input
+                      type="date"
+                      value={paidDateDrafts[row.id] ?? dateInputValue(row.paid_at)}
+                      onChange={(event) =>
+                        setPaidDateDrafts((prev) => ({
+                          ...prev,
+                          [row.id]: event.currentTarget.value,
+                        }))
+                      }
+                      className="h-9 w-full rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-white outline-none focus:border-amber-400/40 md:w-36"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const paidDate =
+                        paidDateDrafts[row.id] ?? dateInputValue(row.paid_at);
+
                       if (paidDate) {
                         onUpdateAssignment(row, {
                           paid: true,
@@ -4033,9 +4049,11 @@ function ContractorEventInvoiceCard({
 
                       onUpdateAssignment(row, { paid_at: null });
                     }}
-                    className="h-9 w-full rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-white outline-none focus:border-amber-400/40 md:w-36"
-                  />
-                </label>
+                    className="mt-2 inline-flex h-8 items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 text-[11px] font-semibold text-amber-200 hover:bg-amber-400/20"
+                  >
+                    Save Date
+                  </button>
+                </div>
               </div>
 
               <div className="text-left md:text-right">
@@ -4123,6 +4141,9 @@ function ContractorEventInvoiceCard({
               className="h-9 rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-white outline-none focus:border-amber-400/40"
             />
           </label>
+          <span className="text-[11px] text-zinc-500">
+            This date saves to the invoice PDF.
+          </span>
 
           <button
             onClick={() =>
