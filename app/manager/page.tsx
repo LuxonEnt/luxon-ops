@@ -81,6 +81,7 @@ type Assignment = {
   confirmed?: boolean | null;
   approved?: boolean | null;
   paid?: boolean | null;
+  paid_at?: string | null;
   manager_approved_hours?: number | null;
   manager_notes?: string | null;
   hours_approved?: boolean | null;
@@ -214,6 +215,12 @@ function dateLabel(value?: string | null) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+
+function dateInputValue(value?: string | null) {
+  if (!value) return "";
+  return String(value).slice(0, 10);
 }
 
 
@@ -1121,11 +1128,22 @@ export default function ManagerPage() {
     updates: Partial<Assignment>,
   ) {
     const wasPaid = !!row.paid;
-    const isNowBeingMarkedPaid = updates.paid === true && !wasPaid;
+    const today = new Date().toISOString().slice(0, 10);
+    const updatesToSave: Partial<Assignment> = { ...updates };
+
+    if (updates.paid === true && !updatesToSave.paid_at) {
+      updatesToSave.paid_at = today;
+    }
+
+    if (updates.paid === false) {
+      updatesToSave.paid_at = null;
+    }
+
+    const isNowBeingMarkedPaid = updatesToSave.paid === true && !wasPaid;
 
     const { error } = await supabase
       .from("assignments")
-      .update(updates)
+      .update(updatesToSave)
       .eq("id", row.id);
 
     if (error) {
@@ -1137,6 +1155,9 @@ export default function ManagerPage() {
 
     if (isNowBeingMarkedPaid) {
       const invoiceRow = row as AssignmentRow;
+      const paidDateForEmail =
+        updatesToSave.paid_at || invoiceRow.paid_at || today;
+
       const emailResult = await sendInvoicePaidEmail({
         contractorName: invoiceRow.contractor?.name || null,
         contractorEmail: invoiceRow.contractor?.email || null,
@@ -1150,7 +1171,7 @@ export default function ManagerPage() {
             ? invoiceRow.total
             : Number(invoiceRow.rate || 0),
         dueBalance: 0,
-        paidDate: new Date().toISOString(),
+        paidDate: paidDateForEmail,
       });
 
       paidEmailMessage = emailResult.ok
@@ -3151,6 +3172,9 @@ function ContractorEventInvoiceCard({
   const [isOpen, setIsOpen] = useState(false);
   const [showInvoicePreview, setShowInvoicePreview] = useState(false);
   const [showAddAssignment, setShowAddAssignment] = useState(false);
+  const [wholeInvoicePaidDate, setWholeInvoicePaidDate] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
   const [addAssignmentForm, setAddAssignmentForm] = useState({
     position: "",
     work_date: "",
@@ -3406,6 +3430,7 @@ function ContractorEventInvoiceCard({
       <div class="approved">
         <div class="big">${escapeHtml(row.paid ? "PAID" : row.approved ? "APPROVED" : "PENDING")}</div>
         <div class="subtle" style="margin-top: 10px;">Record ${escapeHtml(individualInvoiceNumber)}</div>
+        <div class="subtle">Paid Date: ${escapeHtml(row.paid_at ? dateLabel(row.paid_at) : "--")}</div>
         <div class="subtle">Balance Due: ${escapeHtml(money(row.paid ? 0 : row.total))}</div>
       </div>
     </div>
@@ -3447,6 +3472,7 @@ function ContractorEventInvoiceCard({
           <th>Hours</th>
           <th>Rate</th>
           <th>Due Date</th>
+          <th>Paid Date</th>
           <th>Amount</th>
         </tr>
       </thead>
@@ -3462,6 +3488,7 @@ function ContractorEventInvoiceCard({
           <td>${escapeHtml(row.billedHours.toFixed(2))}</td>
           <td>${escapeHtml(money(Number(row.rate || 0)))} / ${escapeHtml(row.rate_type || "day")}</td>
           <td>${escapeHtml(invoiceDueDateLabel(row.hours_approved_at, row.work_date))}</td>
+          <td>${escapeHtml(row.paid_at ? dateLabel(row.paid_at) : "--")}</td>
           <td>${escapeHtml(money(row.total))}</td>
         </tr>
       </tbody>
@@ -3490,6 +3517,10 @@ function ContractorEventInvoiceCard({
         <div class="summary-row">
           <span>Paid Status</span>
           <strong>${escapeHtml(row.paid ? "Paid" : "Unpaid")}</strong>
+        </div>
+        <div class="summary-row">
+          <span>Paid Date</span>
+          <strong>${escapeHtml(row.paid_at ? dateLabel(row.paid_at) : "--")}</strong>
         </div>
         <div class="summary-row">
           <span>Invoice Total</span>
@@ -3550,6 +3581,7 @@ function ContractorEventInvoiceCard({
             <td>${escapeHtml(row.billedHours.toFixed(2))}</td>
             <td>${escapeHtml(money(Number(row.rate || 0)))} / ${escapeHtml(row.rate_type || "day")}</td>
             <td>${escapeHtml(invoiceDueDateLabel(row.hours_approved_at, row.work_date))}</td>
+            <td>${escapeHtml(row.paid_at ? dateLabel(row.paid_at) : "--")}</td>
             <td>${escapeHtml(money(row.total))}</td>
           </tr>
         `,
@@ -3769,6 +3801,7 @@ function ContractorEventInvoiceCard({
           <th>Hours</th>
           <th>Rate</th>
           <th>Due Date</th>
+          <th>Paid Date</th>
           <th>Amount</th>
         </tr>
       </thead>
@@ -3981,6 +4014,28 @@ function ContractorEventInvoiceCard({
                 <div className="text-xs text-zinc-500">
                   {row.approved ? "Approved" : "Pending"} · {row.paid ? "Paid" : "Unpaid"}
                 </div>
+                <label className="mt-2 block text-left md:text-right">
+                  <span className="mb-1 block text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                    Paid Date
+                  </span>
+                  <input
+                    type="date"
+                    defaultValue={dateInputValue(row.paid_at)}
+                    onBlur={(event) => {
+                      const paidDate = event.currentTarget.value;
+                      if (paidDate) {
+                        onUpdateAssignment(row, {
+                          paid: true,
+                          paid_at: paidDate,
+                        });
+                        return;
+                      }
+
+                      onUpdateAssignment(row, { paid_at: null });
+                    }}
+                    className="h-9 w-full rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-white outline-none focus:border-amber-400/40 md:w-36"
+                  />
+                </label>
               </div>
 
               <div className="text-left md:text-right">
@@ -4058,17 +4113,32 @@ function ContractorEventInvoiceCard({
           {allInvoiceApproved ? "Unapprove Invoice" : "Approve Whole Invoice"}
         </button>
 
-        <button
-          onClick={() =>
-            group.rows.forEach((row) =>
-              onUpdateAssignment(row, { paid: !allPaid }),
-            )
-          }
-          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
-        >
-          <DollarSign className="h-4 w-4" />
-          {allPaid ? "Mark Whole Invoice Unpaid" : "Mark Whole Invoice Paid"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2">
+          <label className="flex items-center gap-2 text-xs font-semibold text-zinc-300">
+            Paid Date
+            <input
+              type="date"
+              value={wholeInvoicePaidDate}
+              onChange={(event) => setWholeInvoicePaidDate(event.currentTarget.value)}
+              className="h-9 rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-white outline-none focus:border-amber-400/40"
+            />
+          </label>
+
+          <button
+            onClick={() =>
+              group.rows.forEach((row) =>
+                onUpdateAssignment(row, {
+                  paid: !allPaid,
+                  paid_at: !allPaid ? wholeInvoicePaidDate || new Date().toISOString().slice(0, 10) : null,
+                }),
+              )
+            }
+            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+          >
+            <DollarSign className="h-4 w-4" />
+            {allPaid ? "Mark Whole Invoice Unpaid" : "Mark Whole Invoice Paid"}
+          </button>
+        </div>
       </div>
 
       {showAddAssignment ? (
@@ -4647,7 +4717,12 @@ function ManagerAssignmentCard({
         <ToggleButton
           active={!!row.paid}
           label={row.paid ? "Paid" : "Mark Paid"}
-          onClick={() => onUpdateAssignment(row, { paid: !row.paid })}
+          onClick={() =>
+            onUpdateAssignment(row, {
+              paid: !row.paid,
+              paid_at: !row.paid ? new Date().toISOString().slice(0, 10) : null,
+            })
+          }
         />
 
         <button
