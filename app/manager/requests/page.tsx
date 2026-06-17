@@ -880,9 +880,6 @@ export default function ManagerRequestsPage() {
     (request) => request.status !== "Filled" && request.status !== "Cancelled",
   );
   const filledRequests = requests.filter((request) => request.status === "Filled");
-  const activeProjectRequests = requests.filter(
-    (request) => request.status !== "Cancelled",
-  );
 
   if (status !== "allowed") {
     return (
@@ -1204,8 +1201,8 @@ export default function ManagerRequestsPage() {
               <div className="mb-5 flex items-center justify-between">
                 <SectionTitle
                   icon={<RefreshCw className="h-5 w-5" />}
-                  title="Project Position Requests"
-                  subtitle="Open and filled positions together under the project"
+                  title="Live Openings"
+                  subtitle="Only open crew positions that still need contractors"
                 />
                 <button
                   onClick={loadAll}
@@ -1216,8 +1213,8 @@ export default function ManagerRequestsPage() {
               </div>
 
               <div className="space-y-4">
-                {activeProjectRequests.length ? (
-                  activeProjectRequests.map((request) => {
+                {openRequests.length ? (
+                  openRequests.map((request) => {
                     const requestResponses = responsesByRequest[request.id] || [];
                     const availableResponses = requestResponses.filter(
                       (r) =>
@@ -1236,14 +1233,8 @@ export default function ManagerRequestsPage() {
                               <div className="text-xl font-semibold">
                                 {request.title}
                               </div>
-                              <span
-                                className={
-                                  request.status === "Filled"
-                                    ? "rounded-full border border-emerald-500/30 bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-300"
-                                    : "rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200"
-                                }
-                              >
-                                {request.status === "Filled" ? "Filled" : "Open"}
+                              <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
+                                Open
                               </span>
                             </div>
                             <div className="text-sm text-zinc-400">
@@ -1586,7 +1577,7 @@ export default function ManagerRequestsPage() {
                     );
                   })
                 ) : (
-                  <EmptyState text="No active project position requests right now." />
+                  <EmptyState text="No live openings right now." />
                 )}
               </div>
             </GlassCard>
