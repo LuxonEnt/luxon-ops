@@ -39,6 +39,8 @@ type EventItem = {
   address?: string | null;
   start_date?: string | null;
   end_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
   status?: string | null;
   notes?: string | null;
   latitude?: number | null;
@@ -521,6 +523,8 @@ export default function ManagerPage() {
     address: "",
     start_date: "",
     end_date: "",
+    start_time: "",
+    end_time: "",
     status: "Scheduled",
     notes: "",
     geofence_radius_feet: "750",
@@ -716,6 +720,8 @@ export default function ManagerPage() {
       address: geo.formatted_address || eventForm.address.trim() || null,
       start_date: eventForm.start_date || null,
       end_date: eventForm.end_date || null,
+      start_time: eventForm.start_time || null,
+      end_time: eventForm.end_time || null,
       status: eventForm.status || "Scheduled",
       notes: eventForm.notes.trim() || null,
       latitude: geo.latitude,
@@ -735,6 +741,8 @@ export default function ManagerPage() {
       address: "",
       start_date: "",
       end_date: "",
+      start_time: "",
+      end_time: "",
       status: "Scheduled",
       notes: "",
       geofence_radius_feet: "750",
@@ -776,11 +784,13 @@ export default function ManagerPage() {
         address: geo.formatted_address || row.address?.trim() || null,
         start_date: row.start_date || null,
         end_date: row.end_date || null,
+        start_time: row.start_time || null,
+        end_time: row.end_time || null,
         status: row.status || "Scheduled",
         notes: row.notes?.trim() || null,
         latitude: geo.latitude,
         longitude: geo.longitude,
-        geofence_radius_feet: row.geofence_radius_feet || 750,
+        geofence_radius_feet: Number(row.geofence_radius_feet || 750),
       })
       .eq("id", row.id);
 
@@ -1891,6 +1901,22 @@ export default function ManagerPage() {
                       value={eventForm.end_date}
                       onChange={(v) =>
                         setEventForm({ ...eventForm, end_date: v })
+                      }
+                    />
+                    <Field
+                      label="Start Time"
+                      type="time"
+                      value={eventForm.start_time}
+                      onChange={(v) =>
+                        setEventForm({ ...eventForm, start_time: v })
+                      }
+                    />
+                    <Field
+                      label="End Time"
+                      type="time"
+                      value={eventForm.end_time}
+                      onChange={(v) =>
+                        setEventForm({ ...eventForm, end_time: v })
                       }
                     />
                     <SelectField
@@ -4853,12 +4879,12 @@ function EditableEventCard({
         <MiniInfo
           icon={<CalendarDays className="h-4 w-4" />}
           label="Start"
-          value={dateLabel(event.start_date)}
+          value={`${dateLabel(event.start_date)}${event.start_time ? ` · ${timeLabel(event.start_time)}` : ""}`}
         />
         <MiniInfo
           icon={<CalendarDays className="h-4 w-4" />}
           label="End"
-          value={dateLabel(event.end_date)}
+          value={`${dateLabel(event.end_date)}${event.end_time ? ` · ${timeLabel(event.end_time)}` : ""}`}
         />
         <MiniInfo
           icon={<MapPin className="h-4 w-4" />}
@@ -4899,6 +4925,18 @@ function EditableEventCard({
           type="date"
           value={row.end_date || ""}
           onChange={(v) => setRow({ ...row, end_date: v })}
+        />
+        <Field
+          label="Start Time"
+          type="time"
+          value={row.start_time || ""}
+          onChange={(v) => setRow({ ...row, start_time: v })}
+        />
+        <Field
+          label="End Time"
+          type="time"
+          value={row.end_time || ""}
+          onChange={(v) => setRow({ ...row, end_time: v })}
         />
         <Field
           label="Geofence Radius Feet"
