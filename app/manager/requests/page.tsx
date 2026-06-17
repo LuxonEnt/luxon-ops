@@ -876,8 +876,13 @@ export default function ManagerRequestsPage() {
     return map;
   }, [responses]);
 
-  const openRequests = requests.filter((request) => request.status !== "Filled");
+  const openRequests = requests.filter(
+    (request) => request.status !== "Filled" && request.status !== "Cancelled",
+  );
   const filledRequests = requests.filter((request) => request.status === "Filled");
+  const activeProjectRequests = requests.filter(
+    (request) => request.status !== "Cancelled",
+  );
 
   if (status !== "allowed") {
     return (
@@ -1199,8 +1204,8 @@ export default function ManagerRequestsPage() {
               <div className="mb-5 flex items-center justify-between">
                 <SectionTitle
                   icon={<RefreshCw className="h-5 w-5" />}
-                  title="Live Position Requests"
-                  subtitle="Review responses and confirm contractors"
+                  title="Project Position Requests"
+                  subtitle="Open and filled positions together under the project"
                 />
                 <button
                   onClick={loadAll}
@@ -1211,8 +1216,8 @@ export default function ManagerRequestsPage() {
               </div>
 
               <div className="space-y-4">
-                {openRequests.length ? (
-                  openRequests.map((request) => {
+                {activeProjectRequests.length ? (
+                  activeProjectRequests.map((request) => {
                     const requestResponses = responsesByRequest[request.id] || [];
                     const availableResponses = requestResponses.filter(
                       (r) =>
@@ -1227,8 +1232,19 @@ export default function ManagerRequestsPage() {
                       >
                         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                           <div>
-                            <div className="text-xl font-semibold">
-                              {request.title}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-xl font-semibold">
+                                {request.title}
+                              </div>
+                              <span
+                                className={
+                                  request.status === "Filled"
+                                    ? "rounded-full border border-emerald-500/30 bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-300"
+                                    : "rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200"
+                                }
+                              >
+                                {request.status === "Filled" ? "Filled" : "Open"}
+                              </span>
                             </div>
                             <div className="text-sm text-zinc-400">
                               {request.position}{request.required_skill ? ` · ${request.required_skill}` : ""} ·{" "}
@@ -1570,67 +1586,7 @@ export default function ManagerRequestsPage() {
                     );
                   })
                 ) : (
-                  <EmptyState text="No live open requests right now." />
-                )}
-              </div>
-            </GlassCard>
-
-            <GlassCard>
-              <SectionTitle
-                icon={<CheckCircle2 className="h-5 w-5" />}
-                title="Filled Requests"
-                subtitle="Completed position postings"
-              />
-              <div className="mt-5 space-y-3">
-                {filledRequests.length ? (
-                  filledRequests.map((request) => (
-                    <div
-                      key={request.id}
-                      className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4"
-                    >
-                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <div>
-                          <div className="font-semibold text-white">
-                            {request.title}
-                          </div>
-                          <div className="text-sm text-zinc-300">
-                            {request.position}{request.required_skill ? ` · ${request.required_skill}` : ""} ·{" "}
-                            {eventMap[request.event_id]?.name || "Event"}
-                          </div>
-                          <div className="text-xs text-zinc-400">
-                            {dateLabel(request.work_date)} ·{" "}
-                            {timeLabel(request.call_time)}
-                          </div>
-                          <div className="mt-1 text-xs text-zinc-400">
-                            Filled {request.filled_slots} of {request.slots}
-                            {request.selected_contractor_id
-                              ? ` · Selected: ${
-                                  contractorMap[request.selected_contractor_id]
-                                    ?.name ||
-                                  `Contractor #${request.selected_contractor_id}`
-                                }`
-                              : ""}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2 md:justify-end">
-                          <span className="inline-flex items-center rounded-2xl border border-emerald-500/30 bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-300">
-                            Filled
-                          </span>
-
-                          <button
-                            onClick={() => deleteRequest(request)}
-                            className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <EmptyState text="No filled requests yet." />
+                  <EmptyState text="No active project position requests right now." />
                 )}
               </div>
             </GlassCard>
