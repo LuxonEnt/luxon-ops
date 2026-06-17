@@ -38,6 +38,30 @@ const PORTAL_BACKGROUND_STYLE = {
   backgroundAttachment: "fixed",
 } as React.CSSProperties;
 
+const IRS_BUSINESS_MILEAGE_RATE = 0.725;
+
+type MileageTrip = {
+  id: number;
+  assignment_id: number;
+  contractor_id: number;
+  event_id: number;
+  status: "active" | "submitted" | "approved" | "rejected";
+  start_lat?: number | null;
+  start_lng?: number | null;
+  end_lat?: number | null;
+  end_lng?: number | null;
+  gps_miles?: number | null;
+  odometer_start?: number | null;
+  odometer_end?: number | null;
+  approved_miles?: number | null;
+  irs_rate?: number | null;
+  mileage_total?: number | null;
+  notes?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+  created_at?: string | null;
+};
+
 const DEFAULT_SKILL_OPTIONS = [
   "A1",
   "A2",
@@ -123,8 +147,12 @@ type StoredDoc = {
 
 type AssignmentSummary = Assignment & {
   hours: number;
+  laborTotal: number;
+  mileageMiles: number;
+  mileageTotal: number;
   total: number;
   event?: EventItem;
+  mileageTrips: MileageTrip[];
 };
 
 type MobileTab = "home" | "schedule" | "requests" | "files" | "profile";
@@ -135,6 +163,54 @@ function money(value: number) {
     style: "currency",
     currency: "USD",
   }).format(value || 0);
+}
+
+
+function milesBetweenPoints(
+  pointA: { latitude: number; longitude: number },
+  pointB: { latitude: number; longitude: number },
+) {
+  const earthRadiusMiles = 3958.8;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const lat1 = toRadians(pointA.latitude);
+  const lat2 = toRadians(pointB.latitude);
+  const deltaLat = toRadians(pointB.latitude - pointA.latitude);
+  const deltaLng = toRadians(pointB.longitude - pointA.longitude);
+
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1) *
+      Math.cos(lat2) *
+      Math.sin(deltaLng / 2) *
+      Math.sin(deltaLng / 2);
+
+  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function totalMilesFromPoints(
+  points: Array<{ latitude: number; longitude: number }>,
+) {
+  if (points.length < 2) return 0;
+
+  return points.reduce((sum, point, index) => {
+    if (index === 0) return sum;
+    return sum + milesBetweenPoints(points[index - 1], point);
+  }, 0);
+}
+
+function getCurrentPosition() {
+  return new Promise<GeolocationPosition>((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("GPS is not available on this device."));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    });
+  });
 }
 
 function dateLabel(value?: string | null) {
@@ -506,7 +582,7 @@ function buildInvoiceHtml(
               assignment.rate_type || "day"
             }`
           )}</td>
-          <td>${escapeHtml(money(assignment.total))}</td>
+          <td>${escapeHtml(money(assignment.laborTotal))}</td>
         </tr>
       </tbody>
     </table>
@@ -546,6 +622,16 @@ function buildInvoiceHtml(
             }`
           )}</span>
         </div>
+        <div class="summary-row">
+          <span>Labor</span>
+          <span>${escapeHtml(money(assignment.laborTotal))}</span>
+        </div>
+        <div class="summary-row">
+          <span>Mileage</span>
+          <span>${escapeHtml(
+            `${assignment.mileageMiles.toFixed(2)} miles × ${money(IRS_BUSINESS_MILEAGE_RATE)} = ${money(assignment.mileageTotal)}`
+          )}</span>
+        </div>
         <div class="summary-total">
           <span>Total</span>
           <span>${escapeHtml(money(assignment.total))}</span>
@@ -573,6 +659,8 @@ export default function ContractorPage() {
   const [contractor, setContractor] = useState<Contractor | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [mileageTrips, setMileageTrips] = useState<MileageTrip[]>([]);
+  const [activeMileageTripId, setActiveMileageTripId] = useState<number | null>(null);
   const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [documents, setDocuments] = useState<StoredDoc[]>([]);
@@ -589,6 +677,7 @@ export default function ContractorPage() {
   >({});
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mileageWatchRef = useRef<number | null>(null);
 
   const [profileForm, setProfileForm] = useState({
     name: "",
@@ -636,6 +725,7 @@ export default function ContractorPage() {
     const [
       { data: assignmentRows },
       { data: eventRows },
+      { data: mileageRows },
       { data: skillSetsData, error: skillSetsError },
     ] = await Promise.all([
       supabase
@@ -649,6 +739,11 @@ export default function ContractorPage() {
           "id,name,venue,address,client,latitude,longitude,geofence_radius_feet"
         ),
       supabase
+        .from("mileage_trips")
+        .select("*")
+        .eq("contractor_id", contractorRow.id)
+        .order("created_at", { ascending: false }),
+      supabase
         .from("skill_sets")
         .select("name")
         .order("sort_order", { ascending: true })
@@ -658,6 +753,7 @@ export default function ContractorPage() {
     setContractor(contractorRow);
     setAssignments(assignmentRows || []);
     setEvents(eventRows || []);
+    setMileageTrips((mileageRows || []) as MileageTrip[]);
 
     if (!skillSetsError && skillSetsData?.length) {
       setSkillOptions(skillSetsData.map((item: any) => item.name));
@@ -950,6 +1046,200 @@ export default function ContractorPage() {
     setMessage("");
   }
 
+  async function refreshMileageTrips(contractorId = contractor?.id) {
+    if (!contractorId) return;
+
+    const { data, error } = await supabase
+      .from("mileage_trips")
+      .select("*")
+      .eq("contractor_id", contractorId)
+      .order("created_at", { ascending: false });
+
+    if (!error) {
+      setMileageTrips((data || []) as MileageTrip[]);
+    }
+  }
+
+  async function startMileageTrip(row: AssignmentSummary) {
+    if (!contractor) return;
+
+    try {
+      setMessage("Starting GPS mileage trip...");
+      const position = await getCurrentPosition();
+      const latitude = position.coords.latitude;
+      const longitude = position.coords.longitude;
+
+      const { data: trip, error } = await supabase
+        .from("mileage_trips")
+        .insert({
+          assignment_id: row.id,
+          contractor_id: contractor.id,
+          event_id: row.event_id,
+          status: "active",
+          start_lat: latitude,
+          start_lng: longitude,
+          irs_rate: IRS_BUSINESS_MILEAGE_RATE,
+          started_at: new Date().toISOString(),
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+
+      await supabase.from("mileage_trip_points").insert({
+        trip_id: trip.id,
+        latitude,
+        longitude,
+        recorded_at: new Date().toISOString(),
+      });
+
+      setActiveMileageTripId(trip.id);
+      await refreshMileageTrips(contractor.id);
+
+      if (mileageWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(mileageWatchRef.current);
+      }
+
+      mileageWatchRef.current = navigator.geolocation.watchPosition(
+        async (watchPosition) => {
+          await supabase.from("mileage_trip_points").insert({
+            trip_id: trip.id,
+            latitude: watchPosition.coords.latitude,
+            longitude: watchPosition.coords.longitude,
+            recorded_at: new Date().toISOString(),
+          });
+        },
+        () => {},
+        {
+          enableHighAccuracy: true,
+          maximumAge: 5000,
+          timeout: 15000,
+        },
+      );
+
+      setMessage("Mileage trip started. Keep this page open while driving.");
+    } catch (error: any) {
+      setMessage(error?.message || "Could not start mileage trip.");
+    }
+  }
+
+  async function endMileageTrip(row: AssignmentSummary, trip: MileageTrip) {
+    if (!contractor) return;
+
+    try {
+      setMessage("Ending GPS mileage trip...");
+      const position = await getCurrentPosition();
+      const latitude = position.coords.latitude;
+      const longitude = position.coords.longitude;
+
+      await supabase.from("mileage_trip_points").insert({
+        trip_id: trip.id,
+        latitude,
+        longitude,
+        recorded_at: new Date().toISOString(),
+      });
+
+      if (mileageWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(mileageWatchRef.current);
+        mileageWatchRef.current = null;
+      }
+
+      const { data: points } = await supabase
+        .from("mileage_trip_points")
+        .select("latitude,longitude")
+        .eq("trip_id", trip.id)
+        .order("recorded_at", { ascending: true });
+
+      const gpsPoints =
+        points?.map((point: any) => ({
+          latitude: Number(point.latitude),
+          longitude: Number(point.longitude),
+        })) || [];
+
+      const fallbackMiles =
+        trip.start_lat && trip.start_lng
+          ? milesBetweenPoints(
+              {
+                latitude: Number(trip.start_lat),
+                longitude: Number(trip.start_lng),
+              },
+              { latitude, longitude },
+            )
+          : 0;
+
+      const gpsMiles =
+        gpsPoints.length > 1 ? totalMilesFromPoints(gpsPoints) : fallbackMiles;
+
+      const mileageTotal = gpsMiles * IRS_BUSINESS_MILEAGE_RATE;
+
+      const { error } = await supabase
+        .from("mileage_trips")
+        .update({
+          status: "approved",
+          end_lat: latitude,
+          end_lng: longitude,
+          gps_miles: gpsMiles,
+          approved_miles: gpsMiles,
+          irs_rate: IRS_BUSINESS_MILEAGE_RATE,
+          mileage_total: mileageTotal,
+          ended_at: new Date().toISOString(),
+        })
+        .eq("id", trip.id);
+
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+
+      setActiveMileageTripId(null);
+      await refreshMileageTrips(contractor.id);
+      setMessage(`Mileage trip saved: ${gpsMiles.toFixed(2)} miles · ${money(mileageTotal)}`);
+    } catch (error: any) {
+      setMessage(error?.message || "Could not end mileage trip.");
+    }
+  }
+
+  async function saveManualMileage(row: AssignmentSummary) {
+    if (!contractor) return;
+
+    const input = window.prompt("Enter total round-trip business miles", "0");
+    if (input === null) return;
+
+    const miles = Number(input);
+
+    if (!Number.isFinite(miles) || miles <= 0) {
+      setMessage("Mileage must be greater than 0.");
+      return;
+    }
+
+    const mileageTotal = miles * IRS_BUSINESS_MILEAGE_RATE;
+
+    const { error } = await supabase.from("mileage_trips").insert({
+      assignment_id: row.id,
+      contractor_id: contractor.id,
+      event_id: row.event_id,
+      status: "approved",
+      gps_miles: miles,
+      approved_miles: miles,
+      irs_rate: IRS_BUSINESS_MILEAGE_RATE,
+      mileage_total: mileageTotal,
+      notes: "Manual mileage entry",
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    await refreshMileageTrips(contractor.id);
+    setMessage(`Mileage saved: ${miles.toFixed(2)} miles · ${money(mileageTotal)}`);
+  }
+
   async function saveProfile() {
     if (!contractor) return;
 
@@ -1100,19 +1390,38 @@ export default function ContractorPage() {
           ? Number(row.manager_approved_hours)
           : hours;
 
-      const total =
+      const laborTotal =
         row.rate_type === "hour"
           ? approvedHours * Number(row.rate || 0)
           : Number(row.rate || 0);
 
+      const rowMileageTrips = mileageTrips.filter(
+        (trip) => trip.assignment_id === row.id,
+      );
+      const approvedMileageTrips = rowMileageTrips.filter(
+        (trip) => trip.status === "approved",
+      );
+      const mileageMiles = approvedMileageTrips.reduce(
+        (sum, trip) => sum + Number(trip.approved_miles || trip.gps_miles || 0),
+        0,
+      );
+      const mileageTotal = approvedMileageTrips.reduce(
+        (sum, trip) => sum + Number(trip.mileage_total || 0),
+        0,
+      );
+
       return {
         ...row,
         hours: approvedHours,
-        total,
+        laborTotal,
+        mileageMiles,
+        mileageTotal,
+        total: laborTotal + mileageTotal,
         event: eventMap[row.event_id],
+        mileageTrips: rowMileageTrips,
       };
     });
-  }, [assignments, eventMap]);
+  }, [assignments, eventMap, mileageTrips]);
 
   const today = todayIsoDate();
 
@@ -1302,6 +1611,9 @@ export default function ContractorPage() {
                 setLunchTimes={setLunchTimes}
                 clockIn={clockIn}
                 clockOut={clockOut}
+                startMileageTrip={startMileageTrip}
+                endMileageTrip={endMileageTrip}
+                saveManualMileage={saveManualMileage}
               />
             </CollapsibleSection>
 
@@ -1637,6 +1949,9 @@ function AssignmentList({
   setLunchTimes,
   clockIn,
   clockOut,
+  startMileageTrip,
+  endMileageTrip,
+  saveManualMileage,
 }: {
   rows: AssignmentSummary[];
   clockingId: number | null;
@@ -1646,6 +1961,9 @@ function AssignmentList({
   >;
   clockIn: (row: AssignmentSummary) => void;
   clockOut: (row: AssignmentSummary) => void;
+  startMileageTrip: (row: AssignmentSummary) => void;
+  endMileageTrip: (row: AssignmentSummary, trip: MileageTrip) => void;
+  saveManualMileage: (row: AssignmentSummary) => void;
 }) {
   if (!rows.length) {
     return (
@@ -1745,6 +2063,12 @@ function AssignmentList({
                 value={geofenceReady ? `${radius} ft` : "Not Set"}
               />
             </div>
+            <MileageTrackerPanel
+              row={row}
+              startMileageTrip={startMileageTrip}
+              endMileageTrip={endMileageTrip}
+              saveManualMileage={saveManualMileage}
+            />
 
             {row.clock_in && !row.clock_out ? (
               <LunchRequiredBox
@@ -1796,6 +2120,95 @@ function AssignmentList({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+
+function MileageTrackerPanel({
+  row,
+  startMileageTrip,
+  endMileageTrip,
+  saveManualMileage,
+}: {
+  row: AssignmentSummary;
+  startMileageTrip: (row: AssignmentSummary) => void;
+  endMileageTrip: (row: AssignmentSummary, trip: MileageTrip) => void;
+  saveManualMileage: (row: AssignmentSummary) => void;
+}) {
+  const activeTrip = row.mileageTrips.find((trip) => trip.status === "active");
+  const completedTrips = row.mileageTrips.filter(
+    (trip) => trip.status !== "active",
+  );
+
+  return (
+    <div className="mt-4 rounded-2xl border border-blue-400/20 bg-blue-400/10 p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-blue-100">
+            Mileage Tracker
+          </div>
+          <div className="mt-1 text-xs text-zinc-400">
+            IRS rate: {money(IRS_BUSINESS_MILEAGE_RATE)} / mile · Approved mileage is added to this invoice.
+          </div>
+          <div className="mt-2 text-sm text-white">
+            Approved: {row.mileageMiles.toFixed(2)} miles · {money(row.mileageTotal)}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 md:justify-end">
+          {activeTrip ? (
+            <button
+              type="button"
+              onClick={() => endMileageTrip(row, activeTrip)}
+              className="rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-2 text-sm font-bold text-black"
+            >
+              End Mileage Trip
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => startMileageTrip(row)}
+              className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200"
+            >
+              Start GPS Mileage
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => saveManualMileage(row)}
+            className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+          >
+            Manual Miles
+          </button>
+        </div>
+      </div>
+
+      {activeTrip ? (
+        <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">
+          Mileage tracking is active. Keep this page open until you end the trip.
+        </div>
+      ) : null}
+
+      {completedTrips.length ? (
+        <div className="mt-3 space-y-2">
+          {completedTrips.map((trip) => (
+            <div
+              key={trip.id}
+              className="flex flex-col gap-1 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-zinc-300 md:flex-row md:items-center md:justify-between"
+            >
+              <div>
+                {trip.status.toUpperCase()} · {(Number(trip.approved_miles || trip.gps_miles || 0)).toFixed(2)} miles
+                {trip.ended_at ? ` · ${new Date(trip.ended_at).toLocaleDateString()}` : ""}
+              </div>
+              <div className="font-semibold text-amber-300">
+                {money(Number(trip.mileage_total || 0))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
