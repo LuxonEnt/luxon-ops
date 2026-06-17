@@ -1680,6 +1680,9 @@ export default function ContractorPage() {
               setLunchTimes={setLunchTimes}
               clockIn={clockIn}
               clockOut={clockOut}
+              startMileageTrip={startMileageTrip}
+              endMileageTrip={endMileageTrip}
+              saveManualMileage={saveManualMileage}
             />
           </div>
         )}
