@@ -121,6 +121,7 @@ type Assignment = {
   manager_notes?: string | null;
   hours_approved?: boolean | null;
   hours_approved_at?: string | null;
+  lunch_sms_sent_at?: string | null;
   manual_time_correction?: boolean | null;
   time_correction_reason?: string | null;
   time_corrected_by?: string | null;
@@ -147,6 +148,13 @@ type StoredDoc = {
 
 type AssignmentSummary = Assignment & {
   hours: number;
+  baseHourlyRate: number;
+  regularHours: number;
+  overtimeHours: number;
+  doubleTimeHours: number;
+  straightTimePay: number;
+  overtimePay: number;
+  doubleTimePay: number;
   laborTotal: number;
   mileageMiles: number;
   mileageTotal: number;
@@ -312,6 +320,49 @@ function hoursBetween(
   }
 
   return Math.max(0, totalMins / 60);
+}
+
+
+function calculateLaborBreakdown(
+  hours: number,
+  rate?: number | null,
+  rateType?: string | null,
+) {
+  const cleanHours = Math.max(0, Number(hours || 0));
+  const cleanRate = Number(rate || 0);
+  const isHourly = rateType === "hour";
+  const baseHourlyRate = isHourly ? cleanRate : cleanRate / 10;
+
+  const regularHours = Math.min(cleanHours, 10);
+  const overtimeHours = Math.min(Math.max(cleanHours - 10, 0), 2);
+  const doubleTimeHours = Math.max(cleanHours - 12, 0);
+
+  let straightTimePay = regularHours * baseHourlyRate;
+
+  if (!isHourly) {
+    if (cleanHours <= 0) {
+      straightTimePay = 0;
+    } else if (cleanHours <= 5) {
+      straightTimePay = cleanRate / 2;
+    } else {
+      straightTimePay = cleanRate;
+    }
+  }
+
+  const overtimePay = overtimeHours * baseHourlyRate * 1.5;
+  const doubleTimePay = doubleTimeHours * baseHourlyRate * 2;
+  const laborTotal = straightTimePay + overtimePay + doubleTimePay;
+
+  return {
+    baseHourlyRate,
+    regularHours,
+    overtimeHours,
+    doubleTimeHours,
+    straightTimePay,
+    overtimePay,
+    doubleTimePay,
+    laborTotal,
+  };
 }
 
 function fileSizeLabel(size?: number) {
@@ -620,6 +671,22 @@ function buildInvoiceHtml(
             `${money(Number(assignment.rate || 0))} / ${
               assignment.rate_type || "day"
             }`
+          )}</span>
+        </div>
+        <div class="summary-row">
+          <span>Straight Time / Base Day</span>
+          <span>${escapeHtml(money(assignment.straightTimePay))}</span>
+        </div>
+        <div class="summary-row">
+          <span>Overtime 1.5×</span>
+          <span>${escapeHtml(
+            `${assignment.overtimeHours.toFixed(2)} hrs = ${money(assignment.overtimePay)}`
+          )}</span>
+        </div>
+        <div class="summary-row">
+          <span>Double Time 2×</span>
+          <span>${escapeHtml(
+            `${assignment.doubleTimeHours.toFixed(2)} hrs = ${money(assignment.doubleTimePay)}`
           )}</span>
         </div>
         <div class="summary-row">
@@ -1398,10 +1465,11 @@ export default function ContractorPage() {
           ? Number(row.manager_approved_hours)
           : hours;
 
-      const laborTotal =
-        row.rate_type === "hour"
-          ? approvedHours * Number(row.rate || 0)
-          : Number(row.rate || 0);
+      const labor = calculateLaborBreakdown(
+        approvedHours,
+        row.rate,
+        row.rate_type,
+      );
 
       const rowMileageTrips = mileageTrips.filter(
         (trip) => trip.assignment_id === row.id,
@@ -1421,10 +1489,17 @@ export default function ContractorPage() {
       return {
         ...row,
         hours: approvedHours,
-        laborTotal,
+        baseHourlyRate: labor.baseHourlyRate,
+        regularHours: labor.regularHours,
+        overtimeHours: labor.overtimeHours,
+        doubleTimeHours: labor.doubleTimeHours,
+        straightTimePay: labor.straightTimePay,
+        overtimePay: labor.overtimePay,
+        doubleTimePay: labor.doubleTimePay,
+        laborTotal: labor.laborTotal,
         mileageMiles,
         mileageTotal,
-        total: laborTotal + mileageTotal,
+        total: labor.laborTotal + mileageTotal,
         event: eventMap[row.event_id],
         mileageTrips: rowMileageTrips,
       };
@@ -2042,7 +2117,7 @@ function AssignmentList({
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-6">
+            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-7">
               <MiniInfo
                 icon={<Clock3 className="h-4 w-4" />}
                 label="Clock In"
@@ -2067,6 +2142,11 @@ function AssignmentList({
                 icon={<Clock3 className="h-4 w-4" />}
                 label="Hours"
                 value={row.hours.toFixed(2)}
+              />
+              <MiniInfo
+                icon={<DollarSign className="h-4 w-4" />}
+                label="OT / DT"
+                value={`${row.overtimeHours.toFixed(2)} / ${row.doubleTimeHours.toFixed(2)}`}
               />
               <MiniInfo
                 icon={<MapPin className="h-4 w-4" />}
