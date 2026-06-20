@@ -198,7 +198,7 @@ function totalMilesFromPoints(
   }, 0);
 }
 
-function getCurrentPosition() {
+function getMileagePosition() {
   return new Promise<GeolocationPosition>((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error("GPS is not available on this device."));
@@ -867,12 +867,18 @@ export default function ContractorPage() {
     const allowedRadius = Number(event.geofence_radius_feet || 750);
     const distance = distanceFeet(userLat, userLon, event.latitude, event.longitude);
 
-    if (distance > allowedRadius) {
+    // Phone GPS can drift, especially when the browser is also tracking mileage.
+    // Keep the manager radius as the rule, but allow a capped GPS accuracy buffer
+    // so contractors are not blocked when their phone reports a wider accuracy circle.
+    const gpsBufferFeet = Math.min(Math.max(accuracyFeet, 0), 500);
+    const allowedDistance = allowedRadius + gpsBufferFeet;
+
+    if (distance > allowedDistance) {
       throw new Error(
         `You are ${Math.round(
           distance
-        )} ft away from the venue. You must be within ${allowedRadius} ft to clock in/out. GPS accuracy: ${Math.round(
-          accuracyFeet
+        )} ft away from the venue. You must be within ${allowedRadius} ft to clock in/out. GPS accuracy buffer applied: ${Math.round(
+          gpsBufferFeet
         )} ft.`
       );
     }
@@ -884,8 +890,10 @@ export default function ContractorPage() {
       accuracyFeet,
       locationString: `${userLat.toFixed(6)},${userLon.toFixed(
         6
-      )} | distance ${Math.round(distance)} ft | accuracy ${Math.round(
-        accuracyFeet
+      )} | distance ${Math.round(distance)} ft | radius ${Math.round(
+        allowedRadius
+      )} ft | accuracy ${Math.round(accuracyFeet)} ft | buffer ${Math.round(
+        gpsBufferFeet
       )} ft`,
     };
   }
@@ -1065,7 +1073,7 @@ export default function ContractorPage() {
 
     try {
       setMessage("Starting GPS mileage trip...");
-      const position = await getCurrentPosition();
+      const position = await getMileagePosition();
       const latitude = position.coords.latitude;
       const longitude = position.coords.longitude;
 
@@ -1131,7 +1139,7 @@ export default function ContractorPage() {
 
     try {
       setMessage("Ending GPS mileage trip...");
-      const position = await getCurrentPosition();
+      const position = await getMileagePosition();
       const latitude = position.coords.latitude;
       const longitude = position.coords.longitude;
 
