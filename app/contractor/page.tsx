@@ -1016,6 +1016,104 @@ export default function ContractorPage() {
     }
   }
 
+  async function lunchClockOut(row: AssignmentSummary) {
+    if (!row.clock_in) {
+      setMessage("You must clock in for the day before clocking out for lunch.");
+      return;
+    }
+
+    if (row.clock_out) {
+      setMessage("This shift is already complete.");
+      return;
+    }
+
+    if (row.lunch_clock_out) {
+      setMessage("You already clocked out for lunch.");
+      return;
+    }
+
+    const lunchOutTime = currentTimeForDb();
+
+    const { error } = await supabase
+      .from("assignments")
+      .update({
+        lunch_clock_out: lunchOutTime,
+      })
+      .eq("id", row.id)
+      .eq("contractor_id", row.contractor_id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setAssignments((prev) =>
+      prev.map((assignment) =>
+        assignment.id === row.id
+          ? { ...assignment, lunch_clock_out: lunchOutTime }
+          : assignment,
+      ),
+    );
+
+    setMessage(`Lunch clock-out saved at ${timeLabel(lunchOutTime)}.`);
+    await refreshPortal();
+  }
+
+  async function lunchClockIn(row: AssignmentSummary) {
+    if (!row.clock_in) {
+      setMessage("You must clock in for the day before clocking back in from lunch.");
+      return;
+    }
+
+    if (!row.lunch_clock_out) {
+      setMessage("Clock out for lunch first.");
+      return;
+    }
+
+    if (row.lunch_clock_in) {
+      setMessage("You already clocked back in from lunch.");
+      return;
+    }
+
+    if (row.clock_out) {
+      setMessage("This shift is already complete.");
+      return;
+    }
+
+    const lunchInTime = currentTimeForDb();
+    const lunchOutMins = timeToMinutes(row.lunch_clock_out);
+    const lunchInMins = timeToMinutes(lunchInTime);
+
+    if (lunchOutMins !== null && lunchInMins !== null && lunchInMins <= lunchOutMins) {
+      setMessage("Lunch clock-in must be after lunch clock-out.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("assignments")
+      .update({
+        lunch_clock_in: lunchInTime,
+      })
+      .eq("id", row.id)
+      .eq("contractor_id", row.contractor_id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setAssignments((prev) =>
+      prev.map((assignment) =>
+        assignment.id === row.id
+          ? { ...assignment, lunch_clock_in: lunchInTime }
+          : assignment,
+      ),
+    );
+
+    setMessage(`Lunch clock-in saved at ${timeLabel(lunchInTime)}.`);
+    await refreshPortal();
+  }
+
   async function clockOut(row: AssignmentSummary) {
     if (!row.clock_in) {
       setMessage("You must clock in before clocking out.");
@@ -1027,28 +1125,25 @@ export default function ContractorPage() {
       return;
     }
 
-    const lunchOut = lunchTimes[row.id]?.lunchOut || "";
-    const lunchIn = lunchTimes[row.id]?.lunchIn || "";
+    const workedHoursSoFar = hoursBetween(
+      row.clock_in,
+      currentTimeForDb(),
+      row.lunch_clock_out,
+      row.lunch_clock_in,
+    );
 
-    if (!lunchOut || !lunchIn) {
-      setMessage(
-        "Lunch clock-out and lunch clock-in are required before clocking out."
-      );
+    if (row.lunch_clock_out && !row.lunch_clock_in) {
+      setMessage("You are still on lunch. Clock back in from lunch before clocking out for the day.");
       return;
     }
 
-    const lunchOutMins = timeToMinutes(lunchOut);
-    const lunchInMins = timeToMinutes(lunchIn);
-
-    if (lunchOutMins === null || lunchInMins === null) {
-      setMessage("Lunch times are invalid.");
+    if (workedHoursSoFar >= 5 && (!row.lunch_clock_out || !row.lunch_clock_in)) {
+      setMessage("A lunch break is required after 5 hours. Clock out for lunch and clock back in before clocking out for the day.");
       return;
     }
 
-    if (lunchInMins <= lunchOutMins) {
-      setMessage("Lunch clock-in must be after lunch clock-out.");
-      return;
-    }
+    const lunchOut = row.lunch_clock_out || null;
+    const lunchIn = row.lunch_clock_in || null;
 
     setClockingId(row.id);
     setMessage("Checking your GPS location...");
@@ -1693,6 +1788,8 @@ export default function ContractorPage() {
                 lunchTimes={lunchTimes}
                 setLunchTimes={setLunchTimes}
                 clockIn={clockIn}
+                lunchClockOut={lunchClockOut}
+                lunchClockIn={lunchClockIn}
                 clockOut={clockOut}
                 startMileageTrip={startMileageTrip}
                 endMileageTrip={endMileageTrip}
@@ -1762,6 +1859,8 @@ export default function ContractorPage() {
               lunchTimes={lunchTimes}
               setLunchTimes={setLunchTimes}
               clockIn={clockIn}
+              lunchClockOut={lunchClockOut}
+              lunchClockIn={lunchClockIn}
               clockOut={clockOut}
               startMileageTrip={startMileageTrip}
               endMileageTrip={endMileageTrip}
@@ -1976,11 +2075,7 @@ function MobileHeroCard({
       </div>
 
       {nextAssignment.clock_in && !nextAssignment.clock_out ? (
-        <LunchRequiredBox
-          row={nextAssignment}
-          lunchTimes={lunchTimes}
-          setLunchTimes={setLunchTimes}
-        />
+        <LunchStatusBox row={nextAssignment} />
       ) : null}
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -2034,6 +2129,8 @@ function AssignmentList({
   lunchTimes,
   setLunchTimes,
   clockIn,
+  lunchClockOut,
+  lunchClockIn,
   clockOut,
   startMileageTrip,
   endMileageTrip,
@@ -2046,6 +2143,8 @@ function AssignmentList({
     React.SetStateAction<Record<number, { lunchOut: string; lunchIn: string }>>
   >;
   clockIn: (row: AssignmentSummary) => void;
+  lunchClockOut: (row: AssignmentSummary) => void;
+  lunchClockIn: (row: AssignmentSummary) => void;
   clockOut: (row: AssignmentSummary) => void;
   startMileageTrip: (row: AssignmentSummary) => void;
   endMileageTrip: (row: AssignmentSummary, trip: MileageTrip) => void;
@@ -2162,11 +2261,7 @@ function AssignmentList({
             />
 
             {row.clock_in && !row.clock_out ? (
-              <LunchRequiredBox
-                row={row}
-                lunchTimes={lunchTimes}
-                setLunchTimes={setLunchTimes}
-              />
+              <LunchStatusBox row={row} />
             ) : null}
 
             <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -2187,18 +2282,38 @@ function AssignmentList({
                   className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-black disabled:opacity-60 md:col-span-2"
                 >
                   <Clock3 className="h-4 w-4" />
-                  {clockingId === row.id ? "Checking GPS..." : "Clock In"}
+                  {clockingId === row.id ? "Checking GPS..." : "Clock In Day"}
+                </button>
+              ) : null}
+
+              {row.clock_in && !row.clock_out && !row.lunch_clock_out ? (
+                <button
+                  onClick={() => lunchClockOut(row)}
+                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-2xl border border-blue-400/20 bg-blue-400/10 px-4 py-3 text-sm font-bold text-blue-200"
+                >
+                  <Clock3 className="h-4 w-4" />
+                  Clock Out Lunch
+                </button>
+              ) : null}
+
+              {row.clock_in && !row.clock_out && row.lunch_clock_out && !row.lunch_clock_in ? (
+                <button
+                  onClick={() => lunchClockIn(row)}
+                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-blue-500 px-4 py-3 text-sm font-bold text-black"
+                >
+                  <Clock3 className="h-4 w-4" />
+                  Clock Back In Lunch
                 </button>
               ) : null}
 
               {row.clock_in && !row.clock_out ? (
                 <button
                   onClick={() => clockOut(row)}
-                  disabled={clockingId === row.id}
-                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-bold text-black disabled:opacity-60 md:col-span-2"
+                  disabled={clockingId === row.id || (!!row.lunch_clock_out && !row.lunch_clock_in)}
+                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-3 text-sm font-bold text-black disabled:opacity-60"
                 >
                   <Clock3 className="h-4 w-4" />
-                  {clockingId === row.id ? "Checking GPS..." : "Clock Out"}
+                  {clockingId === row.id ? "Checking GPS..." : "Clock Out Day"}
                 </button>
               ) : null}
 
@@ -2304,54 +2419,33 @@ function MileageTrackerPanel({
   );
 }
 
-function LunchRequiredBox({
-  row,
-  lunchTimes,
-  setLunchTimes,
-}: {
-  row: AssignmentSummary;
-  lunchTimes: Record<number, { lunchOut: string; lunchIn: string }>;
-  setLunchTimes: React.Dispatch<
-    React.SetStateAction<Record<number, { lunchOut: string; lunchIn: string }>>
-  >;
-}) {
+function LunchStatusBox({ row }: { row: AssignmentSummary }) {
+  const lunchOut = row.lunch_clock_out;
+  const lunchIn = row.lunch_clock_in;
+
   return (
-    <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4">
-      <div className="mb-3 text-sm font-semibold text-amber-100">
-        Lunch Times Required Before Clock Out
+    <div className="mt-4 rounded-2xl border border-blue-400/20 bg-blue-400/10 p-4">
+      <div className="mb-2 text-sm font-semibold text-blue-100">
+        Lunch Break
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <Field
-          label="Lunch Clock Out"
-          type="time"
-          value={lunchTimes[row.id]?.lunchOut || row.lunch_clock_out || ""}
-          onChange={(value) =>
-            setLunchTimes((prev) => ({
-              ...prev,
-              [row.id]: {
-                lunchOut: value,
-                lunchIn: prev[row.id]?.lunchIn || row.lunch_clock_in || "",
-              },
-            }))
-          }
-        />
+      {!lunchOut ? (
+        <div className="text-xs text-zinc-300">
+          Lunch has not been started yet. Use Clock Out Lunch when lunch starts.
+        </div>
+      ) : null}
 
-        <Field
-          label="Lunch Clock In"
-          type="time"
-          value={lunchTimes[row.id]?.lunchIn || row.lunch_clock_in || ""}
-          onChange={(value) =>
-            setLunchTimes((prev) => ({
-              ...prev,
-              [row.id]: {
-                lunchOut: prev[row.id]?.lunchOut || row.lunch_clock_out || "",
-                lunchIn: value,
-              },
-            }))
-          }
-        />
-      </div>
+      {lunchOut && !lunchIn ? (
+        <div className="text-xs text-amber-100">
+          Currently on lunch since {timeLabel(lunchOut)}. Clock back in from lunch before clocking out for the day.
+        </div>
+      ) : null}
+
+      {lunchOut && lunchIn ? (
+        <div className="text-xs text-emerald-200">
+          Lunch recorded: {timeLabel(lunchOut)} - {timeLabel(lunchIn)}
+        </div>
+      ) : null}
     </div>
   );
 }
