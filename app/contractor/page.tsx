@@ -1137,11 +1137,8 @@ export default function ContractorPage() {
       return;
     }
 
-    if (workedHoursSoFar >= 5 && (!row.lunch_clock_out || !row.lunch_clock_in)) {
-      setMessage("A lunch break is required after 5 hours. Clock out for lunch and clock back in before clocking out for the day.");
-      return;
-    }
-
+    // Lunch reminder is allowed after 5 hours, but do not block clock-out.
+    // Some production days cannot take lunch exactly at the 5-hour mark.
     const lunchOut = row.lunch_clock_out || null;
     const lunchIn = row.lunch_clock_in || null;
 
@@ -2431,7 +2428,7 @@ function LunchStatusBox({ row }: { row: AssignmentSummary }) {
 
       {!lunchOut ? (
         <div className="text-xs text-zinc-300">
-          Lunch has not been started yet. Use Clock Out Lunch when lunch starts.
+          Lunch has not been recorded yet. Use Clock Out Lunch when lunch starts, or continue the shift if lunch is not possible yet.
         </div>
       ) : null}
 
