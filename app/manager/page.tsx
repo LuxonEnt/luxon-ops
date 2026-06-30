@@ -2508,6 +2508,7 @@ export default function ManagerPage() {
                           onDeleteAssignment={deleteAssignment}
                           onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
                           onSendAssignmentReminder={sendAssignmentReminder}
+                          onSendLunchBreakEmail={sendManualLunchBreakEmail}
                           onSaveTimeCorrection={saveTimeCorrection}
                           onRefresh={loadAll}
                         />
@@ -4611,6 +4612,7 @@ function ContractorEventInvoiceCard({
               onDeleteAssignment={onDeleteAssignment}
               onCancelAndNotifyAssignment={onCancelAndNotifyAssignment}
               onSendAssignmentReminder={onSendAssignmentReminder}
+        onSendLunchBreakEmail={onSendLunchBreakEmail}
               onSaveTimeCorrection={onSaveTimeCorrection}
             />
           ))}
