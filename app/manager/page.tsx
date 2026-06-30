@@ -98,6 +98,13 @@ type Assignment = {
 type AssignmentRow = Assignment & {
   trackedHours: number;
   billedHours: number;
+  regularHours: number;
+  overtimeHours: number;
+  doubleTimeHours: number;
+  baseHourlyRate: number;
+  straightTimePay: number;
+  overtimePay: number;
+  doubleTimePay: number;
   total: number;
   event?: EventItem;
   contractor?: Contractor;
@@ -294,6 +301,47 @@ function hoursBetween(
   return Math.max(0, totalMins / 60);
 }
 
+function calculateLaborTotal(
+  hours: number,
+  rate?: number | null,
+  rateType?: string | null,
+) {
+  const cleanHours = Math.max(0, Number(hours || 0));
+  const cleanRate = Number(rate || 0);
+  const isHourly = rateType === "hour";
+  const baseHourlyRate = isHourly ? cleanRate : cleanRate / 10;
+
+  const regularHours = Math.min(cleanHours, 10);
+  const overtimeHours = Math.min(Math.max(cleanHours - 10, 0), 2);
+  const doubleTimeHours = Math.max(cleanHours - 12, 0);
+
+  let straightTimePay = regularHours * baseHourlyRate;
+
+  if (!isHourly) {
+    if (cleanHours <= 0) {
+      straightTimePay = 0;
+    } else if (cleanHours <= 5) {
+      straightTimePay = cleanRate / 2;
+    } else {
+      straightTimePay = cleanRate;
+    }
+  }
+
+  const overtimePay = overtimeHours * baseHourlyRate * 1.5;
+  const doubleTimePay = doubleTimeHours * baseHourlyRate * 2;
+
+  return {
+    baseHourlyRate,
+    regularHours,
+    overtimeHours,
+    doubleTimeHours,
+    straightTimePay,
+    overtimePay,
+    doubleTimePay,
+    total: straightTimePay + overtimePay + doubleTimePay,
+  };
+}
+
 function fileSizeLabel(size?: number) {
   if (!size && size !== 0) return "";
   if (size < 1024) return `${size} B`;
@@ -349,6 +397,49 @@ type AssignmentEmailPayload = {
   rate?: number | string | null;
   rateType?: string | null;
 };
+
+type LunchBreakEmailPayload = {
+  contractorName?: string | null;
+  contractorEmail?: string | null;
+  eventName?: string | null;
+  venue?: string | null;
+  position?: string | null;
+  workDate?: string | null;
+  callTime?: string | null;
+  clockIn?: string | null;
+};
+
+async function sendLunchBreakEmail(payload: LunchBreakEmailPayload) {
+  if (!payload.contractorEmail) {
+    return { ok: false, error: "Contractor email is missing." };
+  }
+
+  try {
+    const response = await fetch("/api/send-lunch-break-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: data?.error || "Lunch break email could not be sent.",
+      };
+    }
+
+    return { ok: true, error: null };
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: error?.message || "Lunch break email could not be sent.",
+    };
+  }
+}
 
 async function sendAssignmentConfirmationEmail(payload: AssignmentEmailPayload) {
   if (!payload.contractorEmail) {
@@ -1344,6 +1435,34 @@ export default function ManagerPage() {
     setMessage("Reminder email sent to scheduled contractor.");
   }
 
+  async function sendManualLunchBreakEmail(row: AssignmentRow) {
+    const ok = window.confirm(
+      `Send required lunch break email?\n\n${row.contractor?.name || "Contractor"}\n${row.position || "Assignment"}\n${row.event?.name || "Event"}\n\nThis will remind the contractor to take and record lunch in the portal.`,
+    );
+
+    if (!ok) return;
+
+    setMessage("Sending lunch break email...");
+
+    const emailResult = await sendLunchBreakEmail({
+      contractorName: row.contractor?.name || null,
+      contractorEmail: row.contractor?.email || null,
+      eventName: row.event?.name || null,
+      venue: row.event?.venue || null,
+      position: row.position || null,
+      workDate: row.work_date || null,
+      callTime: row.call_time || null,
+      clockIn: row.clock_in || null,
+    });
+
+    if (!emailResult.ok) {
+      setMessage(`Lunch break email was not sent: ${emailResult.error}`);
+      return;
+    }
+
+    setMessage("Required lunch break email sent.");
+  }
+
   async function saveManagerReview(
     row: AssignmentRow,
     managerApprovedHours: string,
@@ -1445,16 +1564,24 @@ export default function ManagerPage() {
           ? Number(row.manager_approved_hours)
           : trackedHours;
 
-      const total =
-        row.rate_type === "hour"
-          ? billedHours * Number(row.rate || 0)
-          : Number(row.rate || 0);
+      const labor = calculateLaborTotal(
+        billedHours,
+        row.rate,
+        row.rate_type,
+      );
 
       return {
         ...row,
         trackedHours,
         billedHours,
-        total,
+        regularHours: labor.regularHours,
+        overtimeHours: labor.overtimeHours,
+        doubleTimeHours: labor.doubleTimeHours,
+        baseHourlyRate: labor.baseHourlyRate,
+        straightTimePay: labor.straightTimePay,
+        overtimePay: labor.overtimePay,
+        doubleTimePay: labor.doubleTimePay,
+        total: labor.total,
         event: eventMap[row.event_id],
         contractor: contractorMap[row.contractor_id],
       };
@@ -1840,6 +1967,7 @@ export default function ManagerPage() {
                         onDeleteAssignment={deleteAssignment}
                         onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
                         onSendAssignmentReminder={sendAssignmentReminder}
+                        onSendLunchBreakEmail={sendManualLunchBreakEmail}
                         onSaveReview={saveManagerReview}
                         onApproveHours={approveHours}
                         onUpdateAssignment={updateAssignment}
@@ -2499,6 +2627,7 @@ function EventAssignmentGroupCard({
   onDeleteAssignment,
   onCancelAndNotifyAssignment,
   onSendAssignmentReminder,
+  onSendLunchBreakEmail,
   onSaveTimeCorrection,
 }: {
   group: EventAssignmentGroup;
@@ -2518,6 +2647,7 @@ function EventAssignmentGroupCard({
   onDeleteAssignment: (id: number) => void;
   onCancelAndNotifyAssignment: (row: AssignmentRow) => void;
   onSendAssignmentReminder: (row: AssignmentRow) => void;
+  onSendLunchBreakEmail: (row: AssignmentRow) => void;
   onSaveTimeCorrection: (
     row: AssignmentRow,
     values: {
@@ -2644,6 +2774,15 @@ function EventAssignmentGroupCard({
                       </button>
 
                       <button
+                        onClick={() => onSendLunchBreakEmail(row)}
+                        disabled={!row.clock_in || !!row.clock_out || !!row.lunch_clock_out}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-blue-400/20 bg-blue-400/10 px-4 py-2 text-sm font-semibold text-blue-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Clock3 className="h-4 w-4" />
+                        Send Lunch Email
+                      </button>
+
+                      <button
                         onClick={() => onCancelAndNotifyAssignment(row)}
                         className="inline-flex items-center gap-2 rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-300"
                       >
@@ -2675,6 +2814,7 @@ function EventAssignmentGroupCard({
                   onDeleteAssignment={onDeleteAssignment}
                   onCancelAndNotifyAssignment={onCancelAndNotifyAssignment}
                   onSendAssignmentReminder={onSendAssignmentReminder}
+                  onSendLunchBreakEmail={onSendLunchBreakEmail}
                   onSaveTimeCorrection={onSaveTimeCorrection}
                 />
               ))}
@@ -3183,6 +3323,7 @@ function ContractorEventInvoiceCard({
   onDeleteAssignment: (id: number) => void;
   onCancelAndNotifyAssignment: (row: AssignmentRow) => void;
   onSendAssignmentReminder: (row: AssignmentRow) => void;
+  onSendLunchBreakEmail: (row: AssignmentRow) => void;
   onSaveTimeCorrection: (
     row: AssignmentRow,
     values: {
@@ -4485,6 +4626,7 @@ function ManagerAssignmentCard({
   onDeleteAssignment,
   onCancelAndNotifyAssignment,
   onSendAssignmentReminder,
+  onSendLunchBreakEmail,
   onSaveTimeCorrection,
 }: {
   row: AssignmentRow;
@@ -4564,6 +4706,12 @@ function ManagerAssignmentCard({
           <div className="text-xs text-zinc-500">
             {money(Number(row.rate || 0))} / {row.rate_type || "day"}
           </div>
+          {row.overtimeHours > 0 || row.doubleTimeHours > 0 ? (
+            <div className="mt-1 text-xs text-amber-200">
+              OT: {money(row.overtimePay)}
+              {row.doubleTimeHours > 0 ? ` · DT: ${money(row.doubleTimePay)}` : ""}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -4811,6 +4959,15 @@ function ManagerAssignmentCard({
             })
           }
         />
+
+        <button
+          onClick={() => onSendLunchBreakEmail(row)}
+          disabled={!row.clock_in || !!row.clock_out || !!row.lunch_clock_out}
+          className="inline-flex items-center gap-2 rounded-2xl border border-blue-400/20 bg-blue-400/10 px-4 py-2 text-sm font-semibold text-blue-200 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Clock3 className="h-4 w-4" />
+          Send Lunch Email
+        </button>
 
         <button
           onClick={() => onCancelAndNotifyAssignment(row)}
