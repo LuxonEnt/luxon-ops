@@ -2397,6 +2397,7 @@ export default function ManagerPage() {
                           onDeleteAssignment={deleteAssignment}
                           onCancelAndNotifyAssignment={cancelAndNotifyAssignment}
                           onSendAssignmentReminder={sendAssignmentReminder}
+                          onSendLunchBreakEmail={sendManualLunchBreakEmail}
                           onSaveReview={saveManagerReview}
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
