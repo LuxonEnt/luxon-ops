@@ -4647,6 +4647,7 @@ function ManagerAssignmentCard({
   onDeleteAssignment: (id: number) => void;
   onCancelAndNotifyAssignment: (row: AssignmentRow) => void;
   onSendAssignmentReminder: (row: AssignmentRow) => void;
+  onSendLunchBreakEmail: (row: AssignmentRow) => void;
   onSaveTimeCorrection: (
     row: AssignmentRow,
     values: {
