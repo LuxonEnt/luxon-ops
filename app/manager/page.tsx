@@ -3309,6 +3309,7 @@ function ContractorEventInvoiceCard({
   onDeleteAssignment,
   onCancelAndNotifyAssignment,
   onSendAssignmentReminder,
+  onSendLunchBreakEmail,
   onSaveTimeCorrection,
   onRefresh,
 }: {
@@ -4612,7 +4613,7 @@ function ContractorEventInvoiceCard({
               onDeleteAssignment={onDeleteAssignment}
               onCancelAndNotifyAssignment={onCancelAndNotifyAssignment}
               onSendAssignmentReminder={onSendAssignmentReminder}
-        onSendLunchBreakEmail={onSendLunchBreakEmail}
+              onSendLunchBreakEmail={onSendLunchBreakEmail}
               onSaveTimeCorrection={onSaveTimeCorrection}
             />
           ))}
