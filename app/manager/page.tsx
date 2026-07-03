@@ -2669,6 +2669,12 @@ function EventAssignmentGroupCard({
 }) {
   const event = group.event;
   const eventName = event?.name || "Unassigned Event";
+  const eventDateRange =
+    group.earliestDate &&
+    group.latestDate &&
+    group.earliestDate !== group.latestDate
+      ? `${dateLabel(group.earliestDate)} - ${dateLabel(group.latestDate)}`
+      : dateLabel(group.earliestDate);
   const [selectedBulkIds, setSelectedBulkIds] = useState<number[]>([]);
   const [bulkApproveHours, setBulkApproveHours] = useState(false);
   const [bulkApproveInvoice, setBulkApproveInvoice] = useState(false);
