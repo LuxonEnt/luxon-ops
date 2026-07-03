@@ -4991,8 +4991,10 @@ function ManagerAssignmentCard({
           </div>
           {row.overtimeHours > 0 || row.doubleTimeHours > 0 ? (
             <div className="mt-1 text-xs text-amber-200">
-              OT: {money(row.overtimePay)}
-              {row.doubleTimeHours > 0 ? ` · DT: ${money(row.doubleTimePay)}` : ""}
+              OT Rate: {money(row.baseHourlyRate * 1.5)} / hr
+              {row.doubleTimeHours > 0
+                ? ` · DT Rate: ${money(row.baseHourlyRate * 2)} / hr`
+                : ""}
             </div>
           ) : null}
         </div>
