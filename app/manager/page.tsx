@@ -4887,6 +4887,78 @@ function ManagerAssignmentCard({
     });
   }
 
+  function saveAllContractorUpdates() {
+    const cleanRate = Number(editableRate || 0);
+    const cleanHours =
+      approvedHours.trim() === "" ? row.billedHours : Number(approvedHours);
+
+    if (Number.isNaN(cleanRate) || cleanRate < 0) {
+      alert("Enter a valid pay rate.");
+      return;
+    }
+
+    if (Number.isNaN(cleanHours) || cleanHours < 0) {
+      alert("Manager approved hours must be a valid number.");
+      return;
+    }
+
+    const clockInChanged = (clockIn || null) !== (row.clock_in || null);
+    const lunchOutChanged = (lunchOut || null) !== (row.lunch_clock_out || null);
+    const lunchInChanged = (lunchIn || null) !== (row.lunch_clock_in || null);
+    const clockOutChanged = (clockOut || null) !== (row.clock_out || null);
+    const timeChanged =
+      clockInChanged || lunchOutChanged || lunchInChanged || clockOutChanged;
+
+    const updates: Partial<Assignment> = {
+      assignment_display_title: displayTitle.trim() || null,
+      position: positionText.trim() || null,
+      rate: cleanRate,
+      rate_type: editableRateType || "day",
+      manager_approved_hours: cleanHours,
+      manager_notes: notes.trim() || null,
+      hours_approved: bulkApproveHours,
+      hours_approved_at: bulkApproveHours
+        ? row.hours_approved_at || new Date().toISOString()
+        : null,
+      approved: bulkApproveInvoice,
+      paid: bulkMarkPaid,
+      paid_at: bulkMarkPaid
+        ? row.paid_at || new Date().toISOString().slice(0, 10)
+        : null,
+    };
+
+    if (timeChanged) {
+      const reason = correctionReason.trim();
+
+      if (!reason) {
+        alert("Add a correction reason before saving time changes.");
+        return;
+      }
+
+      const correctionStamp = new Date().toISOString();
+      const manualLocationNote = `Manual correction saved in bulk update at ${new Date().toLocaleString()} | GPS not verified`;
+
+      updates.clock_in = clockIn || null;
+      updates.lunch_clock_out = lunchOut || null;
+      updates.lunch_clock_in = lunchIn || null;
+      updates.clock_out = clockOut || null;
+      updates.clock_in_location = clockInChanged
+        ? manualLocationNote
+        : row.clock_in_location || null;
+      updates.clock_out_location = clockOutChanged
+        ? manualLocationNote
+        : row.clock_out_location || null;
+      updates.manual_time_correction = true;
+      updates.time_correction_reason = reason;
+      updates.time_corrected_by = "manager";
+      updates.time_corrected_at = correctionStamp;
+    } else if (correctionReason.trim() && correctionReason.trim() !== (row.time_correction_reason || "")) {
+      updates.time_correction_reason = correctionReason.trim();
+    }
+
+    onUpdateAssignment(row, updates);
+  }
+
   return (
     <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -5125,6 +5197,14 @@ function ManagerAssignmentCard({
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button
+          onClick={saveAllContractorUpdates}
+          className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-bold text-black"
+        >
+          <Save className="h-4 w-4" />
+          Save All Contractor Updates
+        </button>
+
+        <button
           onClick={() =>
             onSaveTimeCorrection(row, {
               clockIn,
@@ -5184,7 +5264,7 @@ function ManagerAssignmentCard({
             className="inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-black"
           >
             <Save className="h-4 w-4" />
-            Save Selected Updates
+            Save Selected Status
           </button>
         </div>
 
