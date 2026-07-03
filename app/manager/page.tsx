@@ -4681,6 +4681,33 @@ function ManagerAssignmentCard({
   const [correctionReason, setCorrectionReason] = useState(
     row.time_correction_reason || "",
   );
+  const [bulkApproveHours, setBulkApproveHours] = useState(!!row.hours_approved);
+  const [bulkApproveInvoice, setBulkApproveInvoice] = useState(!!row.approved);
+  const [bulkMarkPaid, setBulkMarkPaid] = useState(!!row.paid);
+
+  function saveBulkStatusUpdate() {
+    const cleanHours =
+      approvedHours.trim() === "" ? row.billedHours : Number(approvedHours);
+
+    if (Number.isNaN(cleanHours) || cleanHours < 0) {
+      alert("Manager approved hours must be a valid number.");
+      return;
+    }
+
+    onUpdateAssignment(row, {
+      manager_approved_hours: cleanHours,
+      manager_notes: notes.trim() || null,
+      hours_approved: bulkApproveHours,
+      hours_approved_at: bulkApproveHours
+        ? row.hours_approved_at || new Date().toISOString()
+        : null,
+      approved: bulkApproveInvoice,
+      paid: bulkMarkPaid,
+      paid_at: bulkMarkPaid
+        ? row.paid_at || new Date().toISOString().slice(0, 10)
+        : null,
+    });
+  }
 
   return (
     <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
@@ -4943,28 +4970,45 @@ function ManagerAssignmentCard({
           Save Hours / Notes
         </button>
 
-        <ToggleButton
-          active={!!row.hours_approved}
-          label={row.hours_approved ? "Hours Approved" : "Approve Hours"}
-          onClick={() => onApproveHours(row)}
-        />
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-2">
+          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+            <input
+              type="checkbox"
+              checked={bulkApproveHours}
+              onChange={(event) => setBulkApproveHours(event.target.checked)}
+              className="h-4 w-4 accent-emerald-400"
+            />
+            Approve Hours
+          </label>
 
-        <ToggleButton
-          active={!!row.approved}
-          label={row.approved ? "Invoice Approved" : "Approve Invoice"}
-          onClick={() => onUpdateAssignment(row, { approved: !row.approved })}
-        />
+          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+            <input
+              type="checkbox"
+              checked={bulkApproveInvoice}
+              onChange={(event) => setBulkApproveInvoice(event.target.checked)}
+              className="h-4 w-4 accent-emerald-400"
+            />
+            Approve Invoice
+          </label>
 
-        <ToggleButton
-          active={!!row.paid}
-          label={row.paid ? "Paid" : "Mark Paid"}
-          onClick={() =>
-            onUpdateAssignment(row, {
-              paid: !row.paid,
-              paid_at: !row.paid ? new Date().toISOString().slice(0, 10) : null,
-            })
-          }
-        />
+          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+            <input
+              type="checkbox"
+              checked={bulkMarkPaid}
+              onChange={(event) => setBulkMarkPaid(event.target.checked)}
+              className="h-4 w-4 accent-emerald-400"
+            />
+            Mark Paid
+          </label>
+
+          <button
+            onClick={saveBulkStatusUpdate}
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-black"
+          >
+            <Save className="h-4 w-4" />
+            Save Selected Updates
+          </button>
+        </div>
 
         <button
           onClick={() => onSendLunchBreakEmail(row)}
