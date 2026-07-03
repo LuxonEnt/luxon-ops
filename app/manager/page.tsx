@@ -1972,6 +1972,7 @@ export default function ManagerPage() {
                         onApproveHours={approveHours}
                         onUpdateAssignment={updateAssignment}
                         onSaveTimeCorrection={saveTimeCorrection}
+                        onRefresh={loadAll}
                       />
                     ))
                   ) : (
@@ -2402,6 +2403,7 @@ export default function ManagerPage() {
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
                           onSaveTimeCorrection={saveTimeCorrection}
+                          onRefresh={loadAll}
                         />
                       ))
                     ) : (
@@ -2459,6 +2461,7 @@ export default function ManagerPage() {
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
                           onSaveTimeCorrection={saveTimeCorrection}
+                          onRefresh={loadAll}
                         />
                       ))
                     ) : (
@@ -2632,6 +2635,7 @@ function EventAssignmentGroupCard({
   onSendAssignmentReminder,
   onSendLunchBreakEmail,
   onSaveTimeCorrection,
+  onRefresh,
 }: {
   group: EventAssignmentGroup;
   mode: "schedule" | "full";
@@ -2665,12 +2669,93 @@ function EventAssignmentGroupCard({
 }) {
   const event = group.event;
   const eventName = event?.name || "Unassigned Event";
-  const eventDateRange =
-    group.earliestDate &&
-    group.latestDate &&
-    group.earliestDate !== group.latestDate
-      ? `${dateLabel(group.earliestDate)} - ${dateLabel(group.latestDate)}`
-      : dateLabel(group.earliestDate);
+  const [selectedBulkIds, setSelectedBulkIds] = useState<number[]>([]);
+  const [bulkApproveHours, setBulkApproveHours] = useState(false);
+  const [bulkApproveInvoice, setBulkApproveInvoice] = useState(false);
+  const [bulkMarkPaid, setBulkMarkPaid] = useState(false);
+  const [bulkSaving, setBulkSaving] = useState(false);
+
+  const selectableRows = group.rows;
+  const allSelected =
+    selectableRows.length > 0 &&
+    selectableRows.every((row) => selectedBulkIds.includes(row.id));
+
+  function toggleBulkRow(id: number) {
+    setSelectedBulkIds((prev) =>
+      prev.includes(id) ? prev.filter((rowId) => rowId !== id) : [...prev, id],
+    );
+  }
+
+  function toggleAllBulkRows() {
+    setSelectedBulkIds(allSelected ? [] : selectableRows.map((row) => row.id));
+  }
+
+  async function saveBulkContractorStatuses() {
+    const selectedRows = group.rows.filter((row) =>
+      selectedBulkIds.includes(row.id),
+    );
+
+    if (!selectedRows.length) {
+      alert("Select at least one contractor first.");
+      return;
+    }
+
+    if (!bulkApproveHours && !bulkApproveInvoice && !bulkMarkPaid) {
+      alert("Choose at least one update: Approve Hours, Approve Invoice, or Mark Paid.");
+      return;
+    }
+
+    setBulkSaving(true);
+
+    const nowIso = new Date().toISOString();
+    const today = nowIso.slice(0, 10);
+
+    const updates = selectedRows.map((row) => {
+      const payload: Partial<Assignment> = {};
+
+      if (bulkApproveHours) {
+        payload.manager_approved_hours =
+          row.manager_approved_hours !== null &&
+          row.manager_approved_hours !== undefined
+            ? row.manager_approved_hours
+            : row.billedHours;
+        payload.hours_approved = true;
+        payload.hours_approved_at = row.hours_approved_at || nowIso;
+      }
+
+      if (bulkApproveInvoice) {
+        payload.approved = true;
+      }
+
+      if (bulkMarkPaid) {
+        payload.paid = true;
+        payload.paid_at = row.paid_at || today;
+      }
+
+      return supabase.from("assignments").update(payload).eq("id", row.id);
+    });
+
+    const results = await Promise.all(updates);
+    const firstError = results.find((result) => result.error)?.error;
+
+    setBulkSaving(false);
+
+    if (firstError) {
+      alert(firstError.message);
+      return;
+    }
+
+    setSelectedBulkIds([]);
+    setBulkApproveHours(false);
+    setBulkApproveInvoice(false);
+    setBulkMarkPaid(false);
+
+    if (onRefresh) {
+      await onRefresh();
+    } else {
+      window.location.reload();
+    }
+  }
 
   return (
     <div className="overflow-hidden rounded-[28px] border border-white/10 bg-black/25">
@@ -2807,6 +2892,93 @@ function EventAssignmentGroupCard({
             </div>
           ) : (
             <div className="space-y-4">
+              <div className="rounded-3xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-emerald-100">
+                      Bulk Contractor Status Update
+                    </div>
+                    <div className="text-xs text-zinc-400">
+                      Select multiple contractors, choose status updates, then save once.
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={toggleAllBulkRows}
+                    className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    {allSelected ? "Clear All" : "Select All"}
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-2 md:grid-cols-2">
+                  {selectableRows.map((row) => (
+                    <label
+                      key={row.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-white"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedBulkIds.includes(row.id)}
+                        onChange={() => toggleBulkRow(row.id)}
+                        className="h-4 w-4 accent-emerald-400"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold">
+                          {row.contractor?.name || "Contractor"}
+                        </span>
+                        <span className="block truncate text-xs text-zinc-500">
+                          {row.position || "Assignment"} · {row.billedHours.toFixed(2)} hrs · {money(row.total)}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+                    <input
+                      type="checkbox"
+                      checked={bulkApproveHours}
+                      onChange={(event) => setBulkApproveHours(event.target.checked)}
+                      className="h-4 w-4 accent-emerald-400"
+                    />
+                    Approve Hours
+                  </label>
+
+                  <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+                    <input
+                      type="checkbox"
+                      checked={bulkApproveInvoice}
+                      onChange={(event) => setBulkApproveInvoice(event.target.checked)}
+                      className="h-4 w-4 accent-emerald-400"
+                    />
+                    Approve Invoice
+                  </label>
+
+                  <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+                    <input
+                      type="checkbox"
+                      checked={bulkMarkPaid}
+                      onChange={(event) => setBulkMarkPaid(event.target.checked)}
+                      className="h-4 w-4 accent-emerald-400"
+                    />
+                    Mark Paid
+                  </label>
+
+                  <button
+                    onClick={saveBulkContractorStatuses}
+                    disabled={bulkSaving || !selectedBulkIds.length}
+                    className="inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Save className="h-4 w-4" />
+                    {bulkSaving
+                      ? "Saving..."
+                      : `Save Selected Contractors (${selectedBulkIds.length})`}
+                  </button>
+                </div>
+              </div>
+
               {group.rows.map((row) => (
                 <ManagerAssignmentCard
                   key={row.id}
