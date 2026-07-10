@@ -4862,6 +4862,9 @@ function ManagerAssignmentCard({
   const [bulkApproveHours, setBulkApproveHours] = useState(!!row.hours_approved);
   const [bulkApproveInvoice, setBulkApproveInvoice] = useState(!!row.approved);
   const [bulkMarkPaid, setBulkMarkPaid] = useState(!!row.paid);
+  const [showSetupSection, setShowSetupSection] = useState(false);
+  const [showTimeSection, setShowTimeSection] = useState(false);
+  const [showReviewSection, setShowReviewSection] = useState(false);
 
   function saveBulkStatusUpdate() {
     const cleanHours =
@@ -5000,101 +5003,125 @@ function ManagerAssignmentCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
-        <Field
-          label="Custom Header / Invoice Title"
-          value={displayTitle}
-          onChange={setDisplayTitle}
-        />
+      <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
         <button
-          onClick={() =>
-            onUpdateAssignment(row, {
-              assignment_display_title: displayTitle.trim() || null,
-            })
-          }
-          className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+          type="button"
+          onClick={() => setShowSetupSection((value) => !value)}
+          className="flex w-full items-center justify-between gap-3 p-4 text-left"
         >
-          <Save className="h-4 w-4" />
-          Save Header
-        </button>
-      </div>
-
-      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
-        <Field
-          label="Assignment Position"
-          value={positionText}
-          onChange={setPositionText}
-        />
-        <button
-          onClick={() =>
-            onUpdateAssignment(row, {
-              position: positionText.trim() || null,
-            })
-          }
-          className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
-        >
-          <Save className="h-4 w-4" />
-          Save Position
-        </button>
-      </div>
-
-      <div className="mt-3 rounded-2xl border border-amber-400/15 bg-amber-400/[0.06] p-4">
-        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-sm font-semibold text-amber-100">
-              Payroll Rate Override
+            <div className="text-sm font-semibold text-white">
+              Header / Position / Pay Rate
             </div>
-            <div className="text-xs text-zinc-400">
-              Use this when a contractor was scheduled at one rate but should be paid a different amount for this assignment.
+            <div className="text-xs text-zinc-500">
+              {positionText || "Assignment"} · {money(Number(editableRate || 0))} / {editableRateType || "day"}
             </div>
           </div>
-          <div className="text-xs text-zinc-500">
-            Current: {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+          <ChevronDown
+            className={`h-5 w-5 text-zinc-400 transition ${showSetupSection ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {showSetupSection ? (
+          <div className="border-t border-white/10 p-4 pt-3">
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+              <Field
+                label="Custom Header / Invoice Title"
+                value={displayTitle}
+                onChange={setDisplayTitle}
+              />
+              <button
+                onClick={() =>
+                  onUpdateAssignment(row, {
+                    assignment_display_title: displayTitle.trim() || null,
+                  })
+                }
+                className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+              >
+                <Save className="h-4 w-4" />
+                Save Header
+              </button>
+            </div>
+
+            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+              <Field
+                label="Assignment Position"
+                value={positionText}
+                onChange={setPositionText}
+              />
+              <button
+                onClick={() =>
+                  onUpdateAssignment(row, {
+                    position: positionText.trim() || null,
+                  })
+                }
+                className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+              >
+                <Save className="h-4 w-4" />
+                Save Position
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-2xl border border-amber-400/15 bg-amber-400/[0.06] p-4">
+              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-amber-100">
+                    Payroll Rate Override
+                  </div>
+                  <div className="text-xs text-zinc-400">
+                    Use this when a contractor was scheduled at one rate but should be paid a different amount for this assignment.
+                  </div>
+                </div>
+                <div className="text-xs text-zinc-500">
+                  Current: {money(Number(row.rate || 0))} / {row.rate_type || "day"}
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[180px_180px_auto]">
+                <Field
+                  label="Pay Rate"
+                  type="number"
+                  value={editableRate}
+                  onChange={setEditableRate}
+                />
+
+                <SelectField
+                  label="Rate Type"
+                  value={editableRateType}
+                  onChange={setEditableRateType}
+                  options={[
+                    { value: "day", label: "day / flat rate" },
+                    { value: "hour", label: "hourly" },
+                  ]}
+                />
+
+                <button
+                  onClick={() => {
+                    const cleanRate = Number(editableRate || 0);
+
+                    if (Number.isNaN(cleanRate) || cleanRate < 0) {
+                      alert("Enter a valid pay rate.");
+                      return;
+                    }
+
+                    onUpdateAssignment(row, {
+                      rate: cleanRate,
+                      rate_type: editableRateType || "day",
+                    });
+                  }}
+                  className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200"
+                >
+                  <Save className="h-4 w-4" />
+                  Save Pay Rate
+                </button>
+              </div>
+
+              <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3 text-xs text-zinc-300">
+                Example: if someone was scheduled at $300/day but only worked a half day, change the rate to $150 and keep the rate type as day/flat rate.
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-[180px_180px_auto]">
-          <Field
-            label="Pay Rate"
-            type="number"
-            value={editableRate}
-            onChange={setEditableRate}
-          />
-
-          <SelectField
-            label="Rate Type"
-            value={editableRateType}
-            onChange={setEditableRateType}
-            options={[
-              { value: "day", label: "day / flat rate" },
-              { value: "hour", label: "hourly" },
-            ]}
-          />
-
-          <button
-            onClick={() => {
-              const cleanRate = Number(editableRate || 0);
-
-              if (Number.isNaN(cleanRate) || cleanRate < 0) {
-                alert("Enter a valid pay rate.");
-                return;
-              }
-
-              onUpdateAssignment(row, {
-                rate: cleanRate,
-                rate_type: editableRateType || "day",
-              });
-            }}
-            className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200"
-          >
-            <Save className="h-4 w-4" />
-            Save Pay Rate
-          </button>
-        </div>
-
-        <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3 text-xs text-zinc-300">
-          Example: if someone was scheduled at $300/day but only worked a half day, change the rate to $150 and keep the rate type as day/flat rate.
-        </div>
+        ) : null}
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-4">
@@ -5122,179 +5149,224 @@ function ManagerAssignmentCard({
         />
       </div>
 
-      <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-          <Clock3 className="h-4 w-4 text-amber-300" />
-          Time Correction / Audit
-        </div>
-        <div className="mb-4 grid gap-3 md:grid-cols-4">
-          <Field
-            label="Clock In"
-            type="time"
-            value={clockIn}
-            onChange={setClockIn}
+      <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+        <button
+          type="button"
+          onClick={() => setShowTimeSection((value) => !value)}
+          className="flex w-full items-center justify-between gap-3 p-4 text-left"
+        >
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <Clock3 className="h-4 w-4 text-amber-300" />
+              Time Correction / Audit
+            </div>
+            <div className="mt-1 text-xs text-zinc-500">
+              Clock {timeLabel(clockIn)} - {timeLabel(clockOut)}
+              {lunchOut || lunchIn ? ` · Lunch ${timeLabel(lunchOut)} - ${timeLabel(lunchIn)}` : ""}
+            </div>
+          </div>
+          <ChevronDown
+            className={`h-5 w-5 text-zinc-400 transition ${showTimeSection ? "rotate-180" : ""}`}
           />
-          <Field
-            label="Lunch Out"
-            type="time"
-            value={lunchOut}
-            onChange={setLunchOut}
-          />
-          <Field
-            label="Lunch In"
-            type="time"
-            value={lunchIn}
-            onChange={setLunchIn}
-          />
-          <Field
-            label="Clock Out"
-            type="time"
-            value={clockOut}
-            onChange={setClockOut}
-          />
-        </div>
-        <TextAreaField
-          label="Correction Reason / Audit Notes"
-          value={correctionReason}
-          onChange={setCorrectionReason}
-        />
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <MiniInfo
-            icon={<MapPin className="h-4 w-4" />}
-            label="Clock In GPS / Audit"
-            value={row.clock_in_location || "No GPS / not clocked in"}
-          />
-          <MiniInfo
-            icon={<MapPin className="h-4 w-4" />}
-            label="Clock Out GPS / Audit"
-            value={row.clock_out_location || "No GPS / not clocked out"}
-          />
-        </div>
-        {row.time_corrected_by || row.time_corrected_at ? (
-          <div className="mt-3 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">
-            Last correction by {row.time_corrected_by || "manager"}
-            {row.time_corrected_at
-              ? ` on ${new Date(row.time_corrected_at).toLocaleString()}`
-              : ""}
-            {row.time_correction_reason
-              ? ` · ${row.time_correction_reason}`
-              : ""}
+        </button>
+
+        {showTimeSection ? (
+          <div className="border-t border-white/10 p-4 pt-3">
+            <div className="mb-4 grid gap-3 md:grid-cols-4">
+              <Field
+                label="Clock In"
+                type="time"
+                value={clockIn}
+                onChange={setClockIn}
+              />
+              <Field
+                label="Lunch Out"
+                type="time"
+                value={lunchOut}
+                onChange={setLunchOut}
+              />
+              <Field
+                label="Lunch In"
+                type="time"
+                value={lunchIn}
+                onChange={setLunchIn}
+              />
+              <Field
+                label="Clock Out"
+                type="time"
+                value={clockOut}
+                onChange={setClockOut}
+              />
+            </div>
+            <TextAreaField
+              label="Correction Reason / Audit Notes"
+              value={correctionReason}
+              onChange={setCorrectionReason}
+            />
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <MiniInfo
+                icon={<MapPin className="h-4 w-4" />}
+                label="Clock In GPS / Audit"
+                value={row.clock_in_location || "No GPS / not clocked in"}
+              />
+              <MiniInfo
+                icon={<MapPin className="h-4 w-4" />}
+                label="Clock Out GPS / Audit"
+                value={row.clock_out_location || "No GPS / not clocked out"}
+              />
+            </div>
+            {row.time_corrected_by || row.time_corrected_at ? (
+              <div className="mt-3 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">
+                Last correction by {row.time_corrected_by || "manager"}
+                {row.time_corrected_at
+                  ? ` on ${new Date(row.time_corrected_at).toLocaleString()}`
+                  : ""}
+                {row.time_correction_reason
+                  ? ` · ${row.time_correction_reason}`
+                  : ""}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[220px_1fr]">
-        <Field
-          label="Manager Approved Hours"
-          type="number"
-          value={approvedHours}
-          onChange={setApprovedHours}
-        />
-        <TextAreaField
-          label="Manager Notes"
-          value={notes}
-          onChange={setNotes}
-        />
+      <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+        <button
+          type="button"
+          onClick={() => setShowReviewSection((value) => !value)}
+          className="flex w-full items-center justify-between gap-3 p-4 text-left"
+        >
+          <div>
+            <div className="text-sm font-semibold text-white">
+              Manager Review / Actions
+            </div>
+            <div className="text-xs text-zinc-500">
+              Approved hrs {approvedHours || row.billedHours.toFixed(2)} · {bulkApproveHours ? "Hours Approved" : "Hours Pending"} · {bulkApproveInvoice ? "Invoice Approved" : "Invoice Pending"} · {bulkMarkPaid ? "Paid" : "Unpaid"}
+            </div>
+          </div>
+          <ChevronDown
+            className={`h-5 w-5 text-zinc-400 transition ${showReviewSection ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {showReviewSection ? (
+          <div className="border-t border-white/10 p-4 pt-3">
+            <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+              <Field
+                label="Manager Approved Hours"
+                type="number"
+                value={approvedHours}
+                onChange={setApprovedHours}
+              />
+              <TextAreaField
+                label="Manager Notes"
+                value={notes}
+                onChange={setNotes}
+              />
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                onClick={saveAllContractorUpdates}
+                className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-bold text-black"
+              >
+                <Save className="h-4 w-4" />
+                Save All Contractor Updates
+              </button>
+
+              <button
+                onClick={() =>
+                  onSaveTimeCorrection(row, {
+                    clockIn,
+                    lunchOut,
+                    lunchIn,
+                    clockOut,
+                    reason: correctionReason,
+                  })
+                }
+                className="inline-flex items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200"
+              >
+                <Clock3 className="h-4 w-4" />
+                Save Time Correction
+              </button>
+
+              <button
+                onClick={() => onSaveReview(row, approvedHours, notes)}
+                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+              >
+                <Save className="h-4 w-4" />
+                Save Hours / Notes
+              </button>
+
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-2">
+                <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+                  <input
+                    type="checkbox"
+                    checked={bulkApproveHours}
+                    onChange={(event) => setBulkApproveHours(event.target.checked)}
+                    className="h-4 w-4 accent-emerald-400"
+                  />
+                  Approve Hours
+                </label>
+
+                <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+                  <input
+                    type="checkbox"
+                    checked={bulkApproveInvoice}
+                    onChange={(event) => setBulkApproveInvoice(event.target.checked)}
+                    className="h-4 w-4 accent-emerald-400"
+                  />
+                  Approve Invoice
+                </label>
+
+                <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+                  <input
+                    type="checkbox"
+                    checked={bulkMarkPaid}
+                    onChange={(event) => setBulkMarkPaid(event.target.checked)}
+                    className="h-4 w-4 accent-emerald-400"
+                  />
+                  Mark Paid
+                </label>
+
+                <button
+                  onClick={saveBulkStatusUpdate}
+                  className="inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-black"
+                >
+                  <Save className="h-4 w-4" />
+                  Save Selected Status
+                </button>
+              </div>
+
+              <button
+                onClick={() => onSendLunchBreakEmail(row)}
+                disabled={!row.clock_in || !!row.clock_out || !!row.lunch_clock_out}
+                className="inline-flex items-center gap-2 rounded-2xl border border-blue-400/20 bg-blue-400/10 px-4 py-2 text-sm font-semibold text-blue-200 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Clock3 className="h-4 w-4" />
+                Send Lunch Email
+              </button>
+
+              <button
+                onClick={() => onCancelAndNotifyAssignment(row)}
+                className="inline-flex items-center gap-2 rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-300"
+              >
+                <AlertCircle className="h-4 w-4" />
+                Cancel + Notify Contractor
+              </button>
+
+              <button
+                onClick={() => onDeleteAssignment(row.id)}
+                className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete Assignment
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          onClick={saveAllContractorUpdates}
-          className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-2 text-sm font-bold text-black"
-        >
-          <Save className="h-4 w-4" />
-          Save All Contractor Updates
-        </button>
-
-        <button
-          onClick={() =>
-            onSaveTimeCorrection(row, {
-              clockIn,
-              lunchOut,
-              lunchIn,
-              clockOut,
-              reason: correctionReason,
-            })
-          }
-          className="inline-flex items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200"
-        >
-          <Clock3 className="h-4 w-4" />
-          Save Time Correction
-        </button>
-
-        <button
-          onClick={() => onSaveReview(row, approvedHours, notes)}
-          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
-        >
-          <Save className="h-4 w-4" />
-          Save Hours / Notes
-        </button>
-
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-2">
-          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
-            <input
-              type="checkbox"
-              checked={bulkApproveHours}
-              onChange={(event) => setBulkApproveHours(event.target.checked)}
-              className="h-4 w-4 accent-emerald-400"
-            />
-            Approve Hours
-          </label>
-
-          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
-            <input
-              type="checkbox"
-              checked={bulkApproveInvoice}
-              onChange={(event) => setBulkApproveInvoice(event.target.checked)}
-              className="h-4 w-4 accent-emerald-400"
-            />
-            Approve Invoice
-          </label>
-
-          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
-            <input
-              type="checkbox"
-              checked={bulkMarkPaid}
-              onChange={(event) => setBulkMarkPaid(event.target.checked)}
-              className="h-4 w-4 accent-emerald-400"
-            />
-            Mark Paid
-          </label>
-
-          <button
-            onClick={saveBulkStatusUpdate}
-            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-black"
-          >
-            <Save className="h-4 w-4" />
-            Save Selected Status
-          </button>
-        </div>
-
-        <button
-          onClick={() => onSendLunchBreakEmail(row)}
-          disabled={!row.clock_in || !!row.clock_out || !!row.lunch_clock_out}
-          className="inline-flex items-center gap-2 rounded-2xl border border-blue-400/20 bg-blue-400/10 px-4 py-2 text-sm font-semibold text-blue-200 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Clock3 className="h-4 w-4" />
-          Send Lunch Email
-        </button>
-
-        <button
-          onClick={() => onCancelAndNotifyAssignment(row)}
-          className="inline-flex items-center gap-2 rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-2 text-sm font-semibold text-orange-300"
-        >
-          <AlertCircle className="h-4 w-4" />
-          Cancel + Notify Contractor
-        </button>
-
-        <button
-          onClick={() => onDeleteAssignment(row.id)}
-          className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete Assignment
-        </button>
-      </div>
     </div>
   );
 }
