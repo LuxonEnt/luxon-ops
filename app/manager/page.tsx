@@ -4766,11 +4766,11 @@ function ContractorEventInvoiceCard({
       <div class="summary">
         <div class="summary-row">
           <span>Total Hours</span>
-          <strong>${escapeHtml(selectedTotalHours.toFixed(2))}</strong>
+          <strong>${escapeHtml(group.totalHours.toFixed(2))}</strong>
         </div>
         <div class="summary-row">
           <span>Line Items</span>
-          <strong>${escapeHtml(String(selectedRows.length))}</strong>
+          <strong>${escapeHtml(String(group.rows.length))}</strong>
         </div>
         <div class="summary-row">
           <span>Paid Total</span>
