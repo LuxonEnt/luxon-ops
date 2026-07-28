@@ -3367,55 +3367,18 @@ function PayrollUmbrellaCard({
 
 function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
   const [showPreview, setShowPreview] = useState(false);
-  const [selectedInvoiceAssignmentIds, setSelectedInvoiceAssignmentIds] =
-    useState<number[]>(() => group.rows.map((row) => row.id));
 
   const clientInvoiceNumber = `CLIENT-${group.event?.id || "EVENT"}-${new Date()
     .toISOString()
     .slice(0, 10)
     .replaceAll("-", "")}`;
 
-  const selectedRows = group.rows.filter((row) =>
-    selectedInvoiceAssignmentIds.includes(row.id),
-  );
-
-  const selectedDates = selectedRows
-    .map((row) => row.work_date)
-    .filter(Boolean) as string[];
-
   const dateRange =
-    selectedDates.length > 0
-      ? selectedDates.length > 1 &&
-        [...selectedDates].sort()[0] !==
-          [...selectedDates].sort()[selectedDates.length - 1]
-        ? `${dateLabel([...selectedDates].sort()[0])} - ${dateLabel(
-            [...selectedDates].sort()[selectedDates.length - 1],
-          )}`
-        : dateLabel([...selectedDates].sort()[0])
-      : group.earliestDate && group.latestDate && group.earliestDate !== group.latestDate
-        ? `${dateLabel(group.earliestDate)} - ${dateLabel(group.latestDate)}`
-        : dateLabel(group.earliestDate);
+    group.earliestDate && group.latestDate && group.earliestDate !== group.latestDate
+      ? `${dateLabel(group.earliestDate)} - ${dateLabel(group.latestDate)}`
+      : dateLabel(group.earliestDate);
 
-  const selectedLaborTotal = selectedRows.reduce((sum, row) => sum + row.total, 0);
-  const selectedPaidTotal = selectedRows.reduce(
-    (sum, row) => sum + (row.paid ? row.total : 0),
-    0,
-  );
-  const selectedBalanceDue = selectedLaborTotal - selectedPaidTotal;
-  const selectedTotalHours = selectedRows.reduce(
-    (sum, row) => sum + row.billedHours,
-    0,
-  );
-  const selectedPaidHours = selectedRows.reduce(
-    (sum, row) => sum + (row.paid ? row.billedHours : 0),
-    0,
-  );
-  const selectedUnpaidHours = selectedTotalHours - selectedPaidHours;
-  const selectedContractorCount = new Set(
-    selectedRows.map((row) => row.contractor?.name || "Contractor"),
-  ).size;
-
-  const groupedByDate = selectedRows.reduce<Record<string, AssignmentRow[]>>(
+  const groupedByDate = group.rows.reduce<Record<string, AssignmentRow[]>>(
     (acc, row) => {
       const key = row.work_date || "No Date";
       if (!acc[key]) acc[key] = [];
@@ -3424,24 +3387,6 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
     },
     {},
   );
-
-  const allAssignmentsSelected =
-    group.rows.length > 0 &&
-    group.rows.every((row) => selectedInvoiceAssignmentIds.includes(row.id));
-
-  function toggleInvoiceAssignment(id: number) {
-    setSelectedInvoiceAssignmentIds((prev) =>
-      prev.includes(id)
-        ? prev.filter((rowId) => rowId !== id)
-        : [...prev, id],
-    );
-  }
-
-  function toggleAllInvoiceAssignments() {
-    setSelectedInvoiceAssignmentIds(
-      allAssignmentsSelected ? [] : group.rows.map((row) => row.id),
-    );
-  }
 
   function openClientLaborPdf() {
     const escapeHtml = (value: string) =>
@@ -3454,17 +3399,12 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
 
     const logoUrl = `${window.location.origin}/luxon-logo.png`;
 
-    if (!selectedRows.length) {
-      alert("Select at least one assignment to include in this grouped invoice.");
-      return;
-    }
+    const groupedBalanceDue = group.balanceDue;
+    const groupedPaidTotal = group.paidTotal;
+    const groupedPaidHours = group.paidHours;
+    const groupedUnpaidHours = group.unpaidHours;
 
-    const groupedBalanceDue = selectedBalanceDue;
-    const groupedPaidTotal = selectedPaidTotal;
-    const groupedPaidHours = selectedPaidHours;
-    const groupedUnpaidHours = selectedUnpaidHours;
-
-    const lineRows = selectedRows
+    const lineRows = group.rows
       .map(
         (row) => `
           <tr>
@@ -3670,9 +3610,9 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
       <div class="card">
         <div class="label">Invoice Summary</div>
         <div class="value-title">${escapeHtml(dateRange)}</div>
-        <div>${escapeHtml(String(selectedRows.length))} approved labor line item(s)</div>
-        <div>${escapeHtml(String(selectedContractorCount))} contractor(s)</div>
-        <div>${escapeHtml(selectedTotalHours.toFixed(2))} approved/billed labor hour(s)</div>
+        <div>${escapeHtml(String(group.rows.length))} approved labor line item(s)</div>
+        <div>${escapeHtml(String(group.contractorCount))} contractor(s)</div>
+        <div>${escapeHtml(group.totalHours.toFixed(2))} approved/billed labor hour(s)</div>
         <div>${escapeHtml(groupedPaidHours.toFixed(2))} paid labor hour(s)</div>
         <div>${escapeHtml(groupedUnpaidHours.toFixed(2))} unpaid labor hour(s)</div>
       </div>
@@ -3709,19 +3649,19 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
       <div class="summary">
         <div class="summary-row">
           <span>Total Hours</span>
-          <strong>${escapeHtml(selectedTotalHours.toFixed(2))}</strong>
+          <strong>${escapeHtml(group.totalHours.toFixed(2))}</strong>
         </div>
         <div class="summary-row">
           <span>Labor Line Items</span>
-          <strong>${escapeHtml(String(selectedRows.length))}</strong>
+          <strong>${escapeHtml(String(group.rows.length))}</strong>
         </div>
         <div class="summary-row">
           <span>Contractors</span>
-          <strong>${escapeHtml(String(selectedContractorCount))}</strong>
+          <strong>${escapeHtml(String(group.contractorCount))}</strong>
         </div>
         <div class="summary-row">
           <span>Total Labor</span>
-          <strong>${escapeHtml(money(selectedLaborTotal))}</strong>
+          <strong>${escapeHtml(money(group.laborTotal))}</strong>
         </div>
         <div class="summary-row">
           <span>Paid</span>
@@ -3769,19 +3709,19 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
           </div>
 
           <div className="mt-1 text-xs text-zinc-500">
-            {dateRange} · {selectedRows.length} selected of {group.rows.length} approved line item{group.rows.length === 1 ? "" : "s"} · {selectedContractorCount} selected contractor{selectedContractorCount === 1 ? "" : "s"}
+            {dateRange} · {group.rows.length} approved line item{group.rows.length === 1 ? "" : "s"} · {group.contractorCount} contractor{group.contractorCount === 1 ? "" : "s"}
           </div>
         </div>
 
         <div className="text-left xl:text-right">
           <div className="text-3xl font-bold text-amber-300">
-            {money(selectedBalanceDue)}
+            {money(group.balanceDue)}
           </div>
           <div className="text-xs text-zinc-500">
-            {selectedUnpaidHours.toFixed(2)} selected unpaid labor hrs
+            {group.unpaidHours.toFixed(2)} unpaid labor hrs
           </div>
           <div className="mt-1 text-[11px] text-zinc-500">
-            Paid: {money(selectedPaidTotal)} · Selected Total: {money(selectedLaborTotal)}
+            Paid: {money(group.paidTotal)} · Total: {money(group.laborTotal)}
           </div>
         </div>
       </div>
@@ -3800,43 +3740,17 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
         <MiniInfo
           icon={<Users className="h-4 w-4" />}
           label="Contractors"
-          value={String(selectedContractorCount)}
+          value={String(group.contractorCount)}
         />
         <MiniInfo
           icon={<DollarSign className="h-4 w-4" />}
           label="Balance Due"
-          value={money(selectedBalanceDue)}
+          value={money(group.balanceDue)}
         />
       </div>
 
-      <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="text-sm font-semibold text-emerald-100">
-              Select Assignments for Grouped Invoice
-            </div>
-            <div className="text-xs text-zinc-400">
-              Checked assignments will be included when you click View Client Labor PDF.
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={toggleAllInvoiceAssignments}
-            className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
-          >
-            {allAssignmentsSelected ? "Clear All" : "Select All"}
-          </button>
-        </div>
-
-        <div className="mt-3 text-xs text-zinc-300">
-          Selected: {selectedRows.length} assignment{selectedRows.length === 1 ? "" : "s"} · {selectedTotalHours.toFixed(2)} hrs · {money(selectedLaborTotal)}
-        </div>
-      </div>
-
       <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
-        <div className="grid grid-cols-[0.4fr_1fr_1.2fr_1.1fr_0.8fr_0.8fr] gap-3 bg-white/[0.04] px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-          <div>Use</div>
+        <div className="grid grid-cols-[1fr_1.2fr_1.1fr_0.8fr_0.8fr] gap-3 bg-white/[0.04] px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
           <div>Date</div>
           <div>Contractor</div>
           <div>Position</div>
@@ -3845,26 +3759,14 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
         </div>
 
         <div className="divide-y divide-white/10">
-          {group.rows.map((row) => {
-            const checked = selectedInvoiceAssignmentIds.includes(row.id);
-
-            return (
-              <label
+          {Object.entries(groupedByDate).map(([date, rows]) =>
+            rows.map((row) => (
+              <div
                 key={row.id}
-                className={`grid cursor-pointer grid-cols-1 gap-2 px-4 py-3 text-sm md:grid-cols-[0.4fr_1fr_1.2fr_1.1fr_0.8fr_0.8fr] md:gap-3 ${
-                  checked ? "bg-emerald-400/[0.05]" : ""
-                }`}
+                className="grid grid-cols-1 gap-2 px-4 py-3 text-sm md:grid-cols-[1fr_1.2fr_1.1fr_0.8fr_0.8fr] md:gap-3"
               >
-                <div>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleInvoiceAssignment(row.id)}
-                    className="h-4 w-4 accent-emerald-400"
-                  />
-                </div>
                 <div className="font-semibold text-white">
-                  {dateLabel(row.work_date)}
+                  {dateLabel(date)}
                 </div>
                 <div>
                   <div className="font-semibold text-white">
@@ -3888,9 +3790,9 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
                 <div className="text-left font-bold text-amber-300 md:text-right">
                   {money(row.total)}
                 </div>
-              </label>
-            );
-          })}
+              </div>
+            )),
+          )}
         </div>
       </div>
 
@@ -3905,8 +3807,7 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
 
         <button
           onClick={openClientLaborPdf}
-          disabled={!selectedRows.length}
-          className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-600 px-4 py-2 text-sm font-semibold text-black"
         >
           <FileText className="h-4 w-4" />
           View Client Labor PDF
@@ -3919,15 +3820,15 @@ function ClientLaborInvoiceCard({ group }: { group: ClientLaborInvoiceGroup }) {
           <div className="mt-3 grid gap-3 md:grid-cols-3">
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
               <div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">Total Labor</div>
-              <div className="mt-1 text-lg font-bold text-white">{money(selectedLaborTotal)}</div>
+              <div className="mt-1 text-lg font-bold text-white">{money(group.laborTotal)}</div>
             </div>
             <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-3">
               <div className="text-[11px] uppercase tracking-[0.16em] text-emerald-200/70">Paid</div>
-              <div className="mt-1 text-lg font-bold text-emerald-300">{money(selectedPaidTotal)}</div>
+              <div className="mt-1 text-lg font-bold text-emerald-300">{money(group.paidTotal)}</div>
             </div>
             <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3">
               <div className="text-[11px] uppercase tracking-[0.16em] text-amber-200/70">Balance Due</div>
-              <div className="mt-1 text-lg font-bold text-amber-300">{money(selectedBalanceDue)}</div>
+              <div className="mt-1 text-lg font-bold text-amber-300">{money(group.balanceDue)}</div>
             </div>
           </div>
         </div>
@@ -4125,6 +4026,10 @@ function ContractorEventInvoiceCard({
     rate_type: "day",
     notes: "",
   });
+  const [
+    selectedGroupedInvoiceAssignmentIds,
+    setSelectedGroupedInvoiceAssignmentIds,
+  ] = useState<number[]>(() => group.rows.map((row) => row.id));
 
   const invoiceNumber = `LX-${group.event?.id || "EVENT"}-${group.contractor?.id || "CONTRACTOR"}`;
   const balanceDue = group.rows.reduce(
@@ -4132,6 +4037,41 @@ function ContractorEventInvoiceCard({
     0,
   );
   const paidTotal = group.invoiceTotal - balanceDue;
+
+  const selectedGroupedRows = group.rows.filter((row) =>
+    selectedGroupedInvoiceAssignmentIds.includes(row.id),
+  );
+  const selectedGroupedInvoiceTotal = selectedGroupedRows.reduce(
+    (sum, row) => sum + row.total,
+    0,
+  );
+  const selectedGroupedBalanceDue = selectedGroupedRows.reduce(
+    (sum, row) => sum + (row.paid ? 0 : row.total),
+    0,
+  );
+  const selectedGroupedPaidTotal =
+    selectedGroupedInvoiceTotal - selectedGroupedBalanceDue;
+  const selectedGroupedTotalHours = selectedGroupedRows.reduce(
+    (sum, row) => sum + row.billedHours,
+    0,
+  );
+  const allGroupedInvoiceAssignmentsSelected =
+    group.rows.length > 0 &&
+    group.rows.every((row) => selectedGroupedInvoiceAssignmentIds.includes(row.id));
+
+  function toggleGroupedInvoiceAssignment(id: number) {
+    setSelectedGroupedInvoiceAssignmentIds((prev) =>
+      prev.includes(id)
+        ? prev.filter((rowId) => rowId !== id)
+        : [...prev, id],
+    );
+  }
+
+  function toggleAllGroupedInvoiceAssignments() {
+    setSelectedGroupedInvoiceAssignmentIds(
+      allGroupedInvoiceAssignmentsSelected ? [] : group.rows.map((row) => row.id),
+    );
+  }
 
   async function addAssignmentToInvoice() {
     if (!group.event?.id || !group.contractor?.id) {
@@ -4503,13 +4443,15 @@ function ContractorEventInvoiceCard({
 
     const logoUrl = `${window.location.origin}/luxon-logo.png`;
 
-    const groupedBalanceDue = group.rows.reduce(
-      (sum, row) => sum + (row.paid ? 0 : row.total),
-      0,
-    );
-    const groupedPaidTotal = group.invoiceTotal - groupedBalanceDue;
+    if (!selectedGroupedRows.length) {
+      alert("Select at least one assignment to include in this grouped contractor invoice.");
+      return;
+    }
 
-    const lineRows = group.rows
+    const groupedBalanceDue = selectedGroupedBalanceDue;
+    const groupedPaidTotal = selectedGroupedPaidTotal;
+
+    const lineRows = selectedGroupedRows
       .map(
         (row) => `
           <tr>
@@ -4766,11 +4708,11 @@ function ContractorEventInvoiceCard({
       <div class="summary">
         <div class="summary-row">
           <span>Total Hours</span>
-          <strong>${escapeHtml(group.totalHours.toFixed(2))}</strong>
+          <strong>${escapeHtml(selectedGroupedTotalHours.toFixed(2))}</strong>
         </div>
         <div class="summary-row">
           <span>Line Items</span>
-          <strong>${escapeHtml(String(group.rows.length))}</strong>
+          <strong>${escapeHtml(String(selectedGroupedRows.length))}</strong>
         </div>
         <div class="summary-row">
           <span>Paid Total</span>
@@ -4778,7 +4720,7 @@ function ContractorEventInvoiceCard({
         </div>
         <div class="summary-row">
           <span>Invoice Total</span>
-          <strong>${escapeHtml(money(group.invoiceTotal))}</strong>
+          <strong>${escapeHtml(money(selectedGroupedInvoiceTotal))}</strong>
         </div>
         <div class="summary-total">
           <span>Balance Due</span>
@@ -4883,8 +4825,34 @@ function ContractorEventInvoiceCard({
         />
       </div>
 
+      <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-emerald-100">
+              Select Assignments for This Contractor Invoice
+            </div>
+            <div className="text-xs text-zinc-400">
+              Checked assignments will be included in the grouped contractor PDF.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={toggleAllGroupedInvoiceAssignments}
+            className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+          >
+            {allGroupedInvoiceAssignmentsSelected ? "Clear All" : "Select All"}
+          </button>
+        </div>
+
+        <div className="mt-3 text-xs text-zinc-300">
+          Selected: {selectedGroupedRows.length} assignment{selectedGroupedRows.length === 1 ? "" : "s"} · {selectedGroupedTotalHours.toFixed(2)} hrs · {money(selectedGroupedInvoiceTotal)}
+        </div>
+      </div>
+
       <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
-        <div className="grid grid-cols-[1fr_1.15fr_0.65fr_0.75fr_0.8fr_0.75fr_0.65fr_0.65fr] gap-3 bg-white/[0.04] px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+        <div className="grid grid-cols-[0.45fr_1fr_1.15fr_0.65fr_0.75fr_0.8fr_0.75fr_0.65fr_0.65fr] gap-3 bg-white/[0.04] px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          <div>Use</div>
           <div>Date</div>
           <div>Position</div>
           <div>Hours</div>
@@ -4896,12 +4864,25 @@ function ContractorEventInvoiceCard({
         </div>
 
         <div className="divide-y divide-white/10">
-          {group.rows.map((row) => (
-            <div
-              key={row.id}
-              className="grid grid-cols-1 gap-2 px-4 py-3 text-sm md:grid-cols-[1fr_1.15fr_0.65fr_0.75fr_0.8fr_0.75fr_0.65fr_0.65fr] md:gap-3"
-            >
-              <div>
+          {group.rows.map((row) => {
+            const checked = selectedGroupedInvoiceAssignmentIds.includes(row.id);
+
+            return (
+              <div
+                key={row.id}
+                className={`grid grid-cols-1 gap-2 px-4 py-3 text-sm md:grid-cols-[0.45fr_1fr_1.15fr_0.65fr_0.75fr_0.8fr_0.75fr_0.65fr_0.65fr] md:gap-3 ${
+                  checked ? "bg-emerald-400/[0.05]" : ""
+                }`}
+              >
+                <div>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleGroupedInvoiceAssignment(row.id)}
+                    className="h-4 w-4 accent-emerald-400"
+                  />
+                </div>
+                <div>
                 <div className="font-semibold text-white">
                   {dateLabel(row.work_date)}
                 </div>
@@ -5019,7 +5000,8 @@ function ContractorEventInvoiceCard({
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -5050,10 +5032,11 @@ function ContractorEventInvoiceCard({
 
         <button
           onClick={openContractorPdfPreview}
-          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
+          disabled={!selectedGroupedRows.length}
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           <FileText className="h-4 w-4" />
-          View Grouped Contractor PDF
+          View Selected Grouped Contractor PDF
         </button>
 
         <button
