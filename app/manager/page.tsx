@@ -2686,6 +2686,74 @@ function EventAssignmentGroupCard({
     selectableRows.length > 0 &&
     selectableRows.every((row) => selectedBulkIds.includes(row.id));
 
+  const payrollUmbrellaGroups = Object.values(
+    group.rows.reduce<
+      Record<
+        string,
+        {
+          key: string;
+          contractorName: string;
+          positionName: string;
+          rows: AssignmentRow[];
+          totalHours: number;
+          totalPay: number;
+          approvedCount: number;
+          invoiceApprovedCount: number;
+          paidCount: number;
+          earliestDate?: string | null;
+          latestDate?: string | null;
+        }
+      >
+    >((acc, row) => {
+      const contractorKey = row.contractor_id || 0;
+      const positionKey = (row.position || "Assignment").trim().toLowerCase();
+      const key = `${contractorKey}-${positionKey}`;
+
+      if (!acc[key]) {
+        acc[key] = {
+          key,
+          contractorName: row.contractor?.name || "Contractor",
+          positionName: row.position || "Assignment",
+          rows: [],
+          totalHours: 0,
+          totalPay: 0,
+          approvedCount: 0,
+          invoiceApprovedCount: 0,
+          paidCount: 0,
+          earliestDate: row.work_date,
+          latestDate: row.work_date,
+        };
+      }
+
+      acc[key].rows.push(row);
+      acc[key].totalHours += row.billedHours;
+      acc[key].totalPay += row.total;
+      acc[key].approvedCount += row.hours_approved ? 1 : 0;
+      acc[key].invoiceApprovedCount += row.approved ? 1 : 0;
+      acc[key].paidCount += row.paid ? 1 : 0;
+
+      if (
+        row.work_date &&
+        (!acc[key].earliestDate || row.work_date < acc[key].earliestDate)
+      ) {
+        acc[key].earliestDate = row.work_date;
+      }
+
+      if (
+        row.work_date &&
+        (!acc[key].latestDate || row.work_date > acc[key].latestDate)
+      ) {
+        acc[key].latestDate = row.work_date;
+      }
+
+      return acc;
+    }, {}),
+  ).sort((a, b) => {
+    const contractorCompare = a.contractorName.localeCompare(b.contractorName);
+    if (contractorCompare !== 0) return contractorCompare;
+    return a.positionName.localeCompare(b.positionName);
+  });
+
   function toggleBulkRow(id: number) {
     setSelectedBulkIds((prev) =>
       prev.includes(id) ? prev.filter((rowId) => rowId !== id) : [...prev, id],
@@ -2985,10 +3053,10 @@ function EventAssignmentGroupCard({
                 </div>
               </div>
 
-              {group.rows.map((row) => (
-                <ManagerAssignmentCard
-                  key={row.id}
-                  row={row}
+              {payrollUmbrellaGroups.map((umbrella) => (
+                <PayrollUmbrellaCard
+                  key={umbrella.key}
+                  umbrella={umbrella}
                   onSaveReview={onSaveReview}
                   onApproveHours={onApproveHours}
                   onUpdateAssignment={onUpdateAssignment}
@@ -2997,10 +3065,236 @@ function EventAssignmentGroupCard({
                   onSendAssignmentReminder={onSendAssignmentReminder}
                   onSendLunchBreakEmail={onSendLunchBreakEmail}
                   onSaveTimeCorrection={onSaveTimeCorrection}
+                  onRefresh={onRefresh}
                 />
               ))}
             </div>
           )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+
+function PayrollUmbrellaCard({
+  umbrella,
+  onSaveReview,
+  onApproveHours,
+  onUpdateAssignment,
+  onDeleteAssignment,
+  onCancelAndNotifyAssignment,
+  onSendAssignmentReminder,
+  onSendLunchBreakEmail,
+  onSaveTimeCorrection,
+  onRefresh,
+}: {
+  umbrella: {
+    key: string;
+    contractorName: string;
+    positionName: string;
+    rows: AssignmentRow[];
+    totalHours: number;
+    totalPay: number;
+    approvedCount: number;
+    invoiceApprovedCount: number;
+    paidCount: number;
+    earliestDate?: string | null;
+    latestDate?: string | null;
+  };
+  onSaveReview: (
+    row: AssignmentRow,
+    managerApprovedHours: string,
+    managerNotes: string,
+  ) => void;
+  onApproveHours: (row: AssignmentRow) => void;
+  onUpdateAssignment: (
+    row: AssignmentRow,
+    updates: Partial<Assignment>,
+  ) => void;
+  onDeleteAssignment: (id: number) => void;
+  onCancelAndNotifyAssignment: (row: AssignmentRow) => void;
+  onSendAssignmentReminder: (row: AssignmentRow) => void;
+  onSendLunchBreakEmail: (row: AssignmentRow) => void;
+  onSaveTimeCorrection: (
+    row: AssignmentRow,
+    values: {
+      clockIn: string;
+      lunchOut: string;
+      lunchIn: string;
+      clockOut: string;
+      reason: string;
+    },
+  ) => void;
+  onRefresh?: () => Promise<void>;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [approveHours, setApproveHours] = useState(false);
+  const [approveInvoice, setApproveInvoice] = useState(false);
+  const [markPaid, setMarkPaid] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const dateRange =
+    umbrella.earliestDate &&
+    umbrella.latestDate &&
+    umbrella.earliestDate !== umbrella.latestDate
+      ? `${dateLabel(umbrella.earliestDate)} - ${dateLabel(umbrella.latestDate)}`
+      : dateLabel(umbrella.earliestDate);
+
+  async function saveUmbrellaStatusUpdate() {
+    if (!approveHours && !approveInvoice && !markPaid) {
+      alert("Choose at least one update for this contractor position.");
+      return;
+    }
+
+    setSaving(true);
+
+    const nowIso = new Date().toISOString();
+    const today = nowIso.slice(0, 10);
+
+    const updates = umbrella.rows.map((row) => {
+      const payload: Partial<Assignment> = {};
+
+      if (approveHours) {
+        payload.manager_approved_hours =
+          row.manager_approved_hours !== null &&
+          row.manager_approved_hours !== undefined
+            ? row.manager_approved_hours
+            : row.billedHours;
+        payload.hours_approved = true;
+        payload.hours_approved_at = row.hours_approved_at || nowIso;
+      }
+
+      if (approveInvoice) {
+        payload.approved = true;
+      }
+
+      if (markPaid) {
+        payload.paid = true;
+        payload.paid_at = row.paid_at || today;
+      }
+
+      return supabase.from("assignments").update(payload).eq("id", row.id);
+    });
+
+    const results = await Promise.all(updates);
+    const firstError = results.find((result) => result.error)?.error;
+
+    setSaving(false);
+
+    if (firstError) {
+      alert(firstError.message);
+      return;
+    }
+
+    setApproveHours(false);
+    setApproveInvoice(false);
+    setMarkPaid(false);
+
+    if (onRefresh) {
+      await onRefresh();
+    } else {
+      window.location.reload();
+    }
+  }
+
+  return (
+    <div className="overflow-hidden rounded-3xl border border-white/10 bg-black/30">
+      <button
+        type="button"
+        onClick={() => setIsOpen((value) => !value)}
+        className="flex w-full flex-col gap-3 p-4 text-left md:flex-row md:items-start md:justify-between"
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-base font-semibold text-white">
+              {umbrella.contractorName} · {umbrella.positionName}
+            </div>
+            <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-xs font-semibold text-amber-200">
+              {umbrella.rows.length} day{umbrella.rows.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-zinc-500">
+            {dateRange} · Approved {umbrella.approvedCount}/{umbrella.rows.length} · Invoice {umbrella.invoiceApprovedCount}/{umbrella.rows.length} · Paid {umbrella.paidCount}/{umbrella.rows.length}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-3 md:justify-end">
+          <div className="text-left md:text-right">
+            <div className="font-bold text-amber-300">{money(umbrella.totalPay)}</div>
+            <div className="text-xs text-zinc-500">
+              {umbrella.totalHours.toFixed(2)} approved hrs
+            </div>
+          </div>
+          <ChevronDown
+            className={`h-5 w-5 text-zinc-400 transition ${isOpen ? "rotate-180" : ""}`}
+          />
+        </div>
+      </button>
+
+      <div className="border-t border-white/10 bg-white/[0.02] p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+            <input
+              type="checkbox"
+              checked={approveHours}
+              onChange={(event) => setApproveHours(event.target.checked)}
+              className="h-4 w-4 accent-emerald-400"
+            />
+            Approve All Hours
+          </label>
+
+          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+            <input
+              type="checkbox"
+              checked={approveInvoice}
+              onChange={(event) => setApproveInvoice(event.target.checked)}
+              className="h-4 w-4 accent-emerald-400"
+            />
+            Approve All Invoices
+          </label>
+
+          <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+            <input
+              type="checkbox"
+              checked={markPaid}
+              onChange={(event) => setMarkPaid(event.target.checked)}
+              className="h-4 w-4 accent-emerald-400"
+            />
+            Mark All Paid
+          </label>
+
+          <button
+            type="button"
+            onClick={saveUmbrellaStatusUpdate}
+            disabled={saving}
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            {saving ? "Saving..." : "Save This Contractor Position"}
+          </button>
+        </div>
+      </div>
+
+      {isOpen ? (
+        <div className="space-y-4 border-t border-white/10 p-4">
+          {umbrella.rows
+            .slice()
+            .sort((a, b) => (a.work_date || "").localeCompare(b.work_date || ""))
+            .map((row) => (
+              <ManagerAssignmentCard
+                key={row.id}
+                row={row}
+                onSaveReview={onSaveReview}
+                onApproveHours={onApproveHours}
+                onUpdateAssignment={onUpdateAssignment}
+                onDeleteAssignment={onDeleteAssignment}
+                onCancelAndNotifyAssignment={onCancelAndNotifyAssignment}
+                onSendAssignmentReminder={onSendAssignmentReminder}
+                onSendLunchBreakEmail={onSendLunchBreakEmail}
+                onSaveTimeCorrection={onSaveTimeCorrection}
+              />
+            ))}
         </div>
       ) : null}
     </div>
