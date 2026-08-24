@@ -64,6 +64,19 @@ type Contractor = {
   approved_skills?: string[] | null;
 };
 
+type MileageTrip = {
+  id: number;
+  assignment_id: number;
+  contractor_id: number;
+  event_id: number;
+  status?: string | null;
+  gps_miles?: number | null;
+  approved_miles?: number | null;
+  irs_rate?: number | null;
+  mileage_total?: number | null;
+  notes?: string | null;
+};
+
 type Assignment = {
   id: number;
   event_id: number;
@@ -105,6 +118,10 @@ type AssignmentRow = Assignment & {
   straightTimePay: number;
   overtimePay: number;
   doubleTimePay: number;
+  mileageTrips: MileageTrip[];
+  mileageMiles: number;
+  mileageRate: number;
+  mileageTotal: number;
   total: number;
   event?: EventItem;
   contractor?: Contractor;
@@ -616,6 +633,7 @@ export default function ManagerPage() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [mileageTrips, setMileageTrips] = useState<MileageTrip[]>([]);
   const [availability, setAvailability] = useState<AvailabilityItem[]>([]);
   const [documents, setDocuments] = useState<StoredDoc[]>([]);
   const [skillOptions, setSkillOptions] = useState<string[]>(DEFAULT_SKILL_OPTIONS);
@@ -699,6 +717,7 @@ export default function ManagerPage() {
       eventsResult,
       contractorsResult,
       assignmentsResult,
+      mileageTripsResult,
       availabilityResult,
       skillSetsResult,
     ] = await Promise.all([
@@ -714,6 +733,10 @@ export default function ManagerPage() {
         .from("assignments")
         .select("*")
         .order("work_date", { ascending: false }),
+      supabase
+        .from("mileage_trips")
+        .select("*")
+        .order("created_at", { ascending: false }),
       supabase
         .from("contractor_availability")
         .select("*")
@@ -745,6 +768,7 @@ export default function ManagerPage() {
     setEvents(eventsResult.data || []);
     setContractors(contractorsResult.data || []);
     setAssignments(assignmentsResult.data || []);
+    setMileageTrips(mileageTripsResult.error ? [] : mileageTripsResult.data || []);
     setAvailability(availabilityResult.data || []);
 
     if (!skillSetsResult.error && skillSetsResult.data?.length) {
@@ -1298,6 +1322,60 @@ export default function ManagerPage() {
     await loadAll();
   }
 
+  async function saveMileageTrip(
+    row: AssignmentRow,
+    milesValue: string,
+    notesValue: string,
+  ) {
+    const miles = Number(milesValue || 0);
+
+    if (Number.isNaN(miles) || miles < 0) {
+      setMessage("Mileage must be a valid number.");
+      return;
+    }
+
+    const rate = row.mileageRate || 0.725;
+    const total = Number((miles * rate).toFixed(2));
+    const existingTrip = row.mileageTrips[0];
+
+    if (existingTrip) {
+      const { error } = await supabase
+        .from("mileage_trips")
+        .update({
+          status: "approved",
+          approved_miles: miles,
+          mileage_total: total,
+          irs_rate: rate,
+          notes: notesValue.trim() || null,
+        })
+        .eq("id", existingTrip.id);
+
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+    } else {
+      const { error } = await supabase.from("mileage_trips").insert({
+        assignment_id: row.id,
+        contractor_id: row.contractor_id,
+        event_id: row.event_id,
+        status: "approved",
+        approved_miles: miles,
+        mileage_total: total,
+        irs_rate: rate,
+        notes: notesValue.trim() || null,
+      });
+
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+    }
+
+    setMessage("Mileage updated.");
+    await loadAll();
+  }
+
   async function saveTimeCorrection(
     row: AssignmentRow,
     values: {
@@ -1584,6 +1662,32 @@ export default function ManagerPage() {
         row.rate_type,
       );
 
+      const rowMileageTrips = mileageTrips.filter(
+        (trip) => trip.assignment_id === row.id,
+      );
+      const mileageMiles = rowMileageTrips.reduce((sum, trip) => {
+        const approvedMiles =
+          trip.approved_miles !== null && trip.approved_miles !== undefined
+            ? Number(trip.approved_miles)
+            : Number(trip.gps_miles || 0);
+        return sum + approvedMiles;
+      }, 0);
+      const mileageRate =
+        rowMileageTrips.find((trip) => trip.irs_rate !== null && trip.irs_rate !== undefined)
+          ?.irs_rate || 0.725;
+      const mileageTotal = rowMileageTrips.reduce((sum, trip) => {
+        if (trip.mileage_total !== null && trip.mileage_total !== undefined) {
+          return sum + Number(trip.mileage_total || 0);
+        }
+
+        const approvedMiles =
+          trip.approved_miles !== null && trip.approved_miles !== undefined
+            ? Number(trip.approved_miles)
+            : Number(trip.gps_miles || 0);
+
+        return sum + approvedMiles * Number(trip.irs_rate || 0.725);
+      }, 0);
+
       return {
         ...row,
         trackedHours,
@@ -1595,12 +1699,16 @@ export default function ManagerPage() {
         straightTimePay: labor.straightTimePay,
         overtimePay: labor.overtimePay,
         doubleTimePay: labor.doubleTimePay,
-        total: labor.total,
+        mileageTrips: rowMileageTrips,
+        mileageMiles,
+        mileageRate: Number(mileageRate || 0.725),
+        mileageTotal,
+        total: labor.total + mileageTotal,
         event: eventMap[row.event_id],
         contractor: contractorMap[row.contractor_id],
       };
     });
-  }, [assignments, eventMap, contractorMap]);
+  }, [assignments, mileageTrips, eventMap, contractorMap]);
 
   const filteredEvents = events.filter((event) =>
     `${event.name} ${event.client || ""} ${event.venue || ""} ${
@@ -2467,6 +2575,7 @@ export default function ManagerPage() {
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
                           onSaveTimeCorrection={saveTimeCorrection}
+                          onSaveMileageTrip={saveMileageTrip}
                           onRefresh={loadAll}
                         />
                       ))
@@ -2525,6 +2634,7 @@ export default function ManagerPage() {
                           onApproveHours={approveHours}
                           onUpdateAssignment={updateAssignment}
                           onSaveTimeCorrection={saveTimeCorrection}
+                          onSaveMileageTrip={saveMileageTrip}
                           onRefresh={loadAll}
                         />
                       ))
@@ -2577,6 +2687,7 @@ export default function ManagerPage() {
                           onSendAssignmentReminder={sendAssignmentReminder}
                           onSendLunchBreakEmail={sendManualLunchBreakEmail}
                           onSaveTimeCorrection={saveTimeCorrection}
+                          onSaveMileageTrip={saveMileageTrip}
                           onRefresh={loadAll}
                         />
                       ))
@@ -2699,6 +2810,7 @@ function EventAssignmentGroupCard({
   onSendAssignmentReminder,
   onSendLunchBreakEmail,
   onSaveTimeCorrection,
+  onSaveMileageTrip,
   onRefresh,
 }: {
   group: EventAssignmentGroup;
@@ -2728,6 +2840,11 @@ function EventAssignmentGroupCard({
       clockOut: string;
       reason: string;
     },
+  ) => void;
+  onSaveMileageTrip: (
+    row: AssignmentRow,
+    milesValue: string,
+    notesValue: string,
   ) => void;
   onRefresh?: () => Promise<void>;
 }) {
@@ -3129,6 +3246,7 @@ function EventAssignmentGroupCard({
                   onSendAssignmentReminder={onSendAssignmentReminder}
                   onSendLunchBreakEmail={onSendLunchBreakEmail}
                   onSaveTimeCorrection={onSaveTimeCorrection}
+                  onSaveMileageTrip={onSaveMileageTrip}
                   onRefresh={onRefresh}
                 />
               ))}
@@ -3151,6 +3269,7 @@ function PayrollUmbrellaCard({
   onSendAssignmentReminder,
   onSendLunchBreakEmail,
   onSaveTimeCorrection,
+  onSaveMileageTrip,
   onRefresh,
 }: {
   umbrella: {
@@ -3189,6 +3308,11 @@ function PayrollUmbrellaCard({
       clockOut: string;
       reason: string;
     },
+  ) => void;
+  onSaveMileageTrip: (
+    row: AssignmentRow,
+    milesValue: string,
+    notesValue: string,
   ) => void;
   onRefresh?: () => Promise<void>;
 }) {
@@ -3357,6 +3481,7 @@ function PayrollUmbrellaCard({
                 onSendAssignmentReminder={onSendAssignmentReminder}
                 onSendLunchBreakEmail={onSendLunchBreakEmail}
                 onSaveTimeCorrection={onSaveTimeCorrection}
+                onSaveMileageTrip={onSaveMileageTrip}
               />
             ))}
         </div>
@@ -3848,6 +3973,7 @@ function ContractorInvoiceEventGroupCard({
   onSendAssignmentReminder,
   onSendLunchBreakEmail,
   onSaveTimeCorrection,
+  onSaveMileageTrip,
   onRefresh,
 }: {
   group: ContractorInvoiceEventGroup;
@@ -3874,6 +4000,11 @@ function ContractorInvoiceEventGroupCard({
       clockOut: string;
       reason: string;
     },
+  ) => void;
+  onSaveMileageTrip: (
+    row: AssignmentRow,
+    milesValue: string,
+    notesValue: string,
   ) => void;
   onRefresh?: () => Promise<void>;
 }) {
@@ -3963,6 +4094,7 @@ function ContractorInvoiceEventGroupCard({
                 onSendAssignmentReminder={onSendAssignmentReminder}
                 onSendLunchBreakEmail={onSendLunchBreakEmail}
                 onSaveTimeCorrection={onSaveTimeCorrection}
+                onSaveMileageTrip={onSaveMileageTrip}
                 onRefresh={onRefresh}
               />
             ))}
@@ -3983,6 +4115,7 @@ function ContractorEventInvoiceCard({
   onSendAssignmentReminder,
   onSendLunchBreakEmail,
   onSaveTimeCorrection,
+  onSaveMileageTrip,
   onRefresh,
 }: {
   group: ContractorEventInvoiceGroup;
@@ -4009,6 +4142,11 @@ function ContractorEventInvoiceCard({
       clockOut: string;
       reason: string;
     },
+  ) => void;
+  onSaveMileageTrip: (
+    row: AssignmentRow,
+    milesValue: string,
+    notesValue: string,
   ) => void;
   onRefresh?: () => Promise<void>;
 }) {
@@ -5369,6 +5507,7 @@ function ContractorEventInvoiceCard({
               onSendAssignmentReminder={onSendAssignmentReminder}
               onSendLunchBreakEmail={onSendLunchBreakEmail}
               onSaveTimeCorrection={onSaveTimeCorrection}
+              onSaveMileageTrip={onSaveMileageTrip}
             />
           ))}
         </div>
@@ -5387,6 +5526,7 @@ function ManagerAssignmentCard({
   onSendAssignmentReminder,
   onSendLunchBreakEmail,
   onSaveTimeCorrection,
+  onSaveMileageTrip,
 }: {
   row: AssignmentRow;
   onSaveReview: (
@@ -5413,6 +5553,11 @@ function ManagerAssignmentCard({
       reason: string;
     },
   ) => void;
+  onSaveMileageTrip: (
+    row: AssignmentRow,
+    milesValue: string,
+    notesValue: string,
+  ) => void;
 }) {
   const [approvedHours, setApprovedHours] = useState(
     row.manager_approved_hours !== null &&
@@ -5435,6 +5580,13 @@ function ManagerAssignmentCard({
   const [correctionReason, setCorrectionReason] = useState(
     row.time_correction_reason || "",
   );
+  const [editableMileageMiles, setEditableMileageMiles] = useState(
+    row.mileageMiles ? row.mileageMiles.toFixed(2) : "",
+  );
+  const [editableMileageNotes, setEditableMileageNotes] = useState(
+    row.mileageTrips[0]?.notes || "",
+  );
+  const [showMileageSection, setShowMileageSection] = useState(false);
   const [bulkApproveHours, setBulkApproveHours] = useState(!!row.hours_approved);
   const [bulkApproveInvoice, setBulkApproveInvoice] = useState(!!row.approved);
   const [bulkMarkPaid, setBulkMarkPaid] = useState(!!row.paid);
@@ -5576,6 +5728,11 @@ function ManagerAssignmentCard({
                 : ""}
             </div>
           ) : null}
+          {row.mileageTotal > 0 ? (
+            <div className="mt-1 text-xs text-emerald-300">
+              Mileage: {row.mileageMiles.toFixed(2)} mi · {money(row.mileageTotal)}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -5700,7 +5857,7 @@ function ManagerAssignmentCard({
         ) : null}
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <div className="mt-4 grid gap-3 md:grid-cols-5">
         <MiniInfo
           icon={<CalendarDays className="h-4 w-4" />}
           label="Tracked Hours"
@@ -5717,12 +5874,69 @@ function ManagerAssignmentCard({
           value={money(row.total)}
         />
         <MiniInfo
+          icon={<MapPin className="h-4 w-4" />}
+          label="Mileage"
+          value={`${row.mileageMiles.toFixed(2)} mi · ${money(row.mileageTotal)}`}
+        />
+        <MiniInfo
           icon={<ClipboardList className="h-4 w-4" />}
           label="Status"
           value={`${row.hours_approved ? "Hours Approved" : "Hours Pending"} · ${
             row.approved ? "Invoice Approved" : "Invoice Pending"
           } · ${row.paid ? "Paid" : "Unpaid"}`}
         />
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.05]">
+        <button
+          type="button"
+          onClick={() => setShowMileageSection((value) => !value)}
+          className="flex w-full items-center justify-between gap-3 p-4 text-left"
+        >
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <MapPin className="h-4 w-4 text-emerald-300" />
+              Mileage Reimbursement
+            </div>
+            <div className="mt-1 text-xs text-zinc-500">
+              {row.mileageMiles.toFixed(2)} mi · {money(row.mileageTotal)} · Rate {money(row.mileageRate)} / mile
+            </div>
+          </div>
+          <ChevronDown
+            className={`h-5 w-5 text-zinc-400 transition ${showMileageSection ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {showMileageSection ? (
+          <div className="border-t border-white/10 p-4 pt-3">
+            <div className="grid gap-3 md:grid-cols-[180px_1fr_auto]">
+              <Field
+                label="Approved Miles"
+                type="number"
+                value={editableMileageMiles}
+                onChange={setEditableMileageMiles}
+              />
+              <Field
+                label="Mileage Notes"
+                value={editableMileageNotes}
+                onChange={setEditableMileageNotes}
+              />
+              <button
+                onClick={() =>
+                  onSaveMileageTrip(row, editableMileageMiles, editableMileageNotes)
+                }
+                className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200"
+              >
+                <Save className="h-4 w-4" />
+                Save Mileage
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3 text-xs text-zinc-300">
+              Estimated reimbursement: {money(Number(editableMileageMiles || 0) * row.mileageRate)} at {money(row.mileageRate)} per mile.
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
