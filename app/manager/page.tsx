@@ -2144,6 +2144,7 @@ export default function ManagerPage() {
                         onApproveHours={approveHours}
                         onUpdateAssignment={updateAssignment}
                         onSaveTimeCorrection={saveTimeCorrection}
+                        onSaveMileageTrip={saveMileageTrip}
                         onRefresh={loadAll}
                       />
                     ))
