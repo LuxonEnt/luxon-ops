@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Lock, LogIn, Mail, Sparkles } from "lucide-react";
+import { KeyRound, Lock, LogIn, Mail, Sparkles } from "lucide-react";
 
 const PORTAL_BACKGROUND_STYLE = {
   backgroundImage:
@@ -34,6 +34,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
@@ -224,6 +225,45 @@ export default function LoginPage() {
     );
   }
 
+  async function handleForgotPassword() {
+    setMessage("");
+
+    const normalizedEmail = cleanEmail(email);
+
+    if (!normalizedEmail) {
+      setMessage("Enter your email first, then click Forgot / Set Password.");
+      return;
+    }
+
+    setForgotLoading(true);
+
+    try {
+      const response = await fetch("/api/auth/contractor-password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result?.ok) {
+        setMessage(
+          result?.error ||
+            "Could not send the password setup email. Please try again.",
+        );
+        return;
+      }
+
+      setMessage(
+        "Check your email. We sent you a secure link to set or reset your Luxon Ops password.",
+      );
+    } catch (error: any) {
+      setMessage(error?.message || "Could not send the password setup email.");
+    } finally {
+      setForgotLoading(false);
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -367,8 +407,10 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-xs leading-5 text-zinc-400">
-            New contractors can create an account using this link. Their profile
-            will be created automatically after login.
+            If Luxon already created your contractor profile, enter that same email
+            and click <span className="font-semibold text-amber-200">Forgot / Set Password</span>.
+            You will receive a secure email link to set your password for the first time
+            or reset an existing password.
           </div>
         </div>
       </div>
