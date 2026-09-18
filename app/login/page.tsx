@@ -404,6 +404,18 @@ export default function LoginPage() {
                   ? "Login"
                   : "Create Account"}
             </button>
+
+            {mode === "login" ? (
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={forgotLoading}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-5 text-sm font-semibold text-amber-200 transition hover:bg-amber-400/15 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <KeyRound className="h-4 w-4" />
+                {forgotLoading ? "Sending Reset Link..." : "Forgot / Set Password"}
+              </button>
+            ) : null}
           </form>
 
           <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-xs leading-5 text-zinc-400">
