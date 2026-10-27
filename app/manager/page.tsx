@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import {
   AlertCircle,
@@ -1265,6 +1265,7 @@ export default function ManagerPage() {
   async function updateAssignment(
     row: Assignment,
     updates: Partial<Assignment>,
+    options?: { silent?: boolean },
   ) {
     const wasPaid = !!row.paid;
     const today = new Date().toISOString().slice(0, 10);
@@ -1287,8 +1288,16 @@ export default function ManagerPage() {
 
     if (error) {
       setMessage(error.message);
-      return;
+      throw error;
     }
+
+    // Update only this assignment in local state instead of reloading the
+    // entire manager dashboard. This makes autosave feel instant.
+    setAssignments((current) =>
+      current.map((item) =>
+        item.id === row.id ? { ...item, ...updatesToSave } : item,
+      ),
+    );
 
     let paidEmailMessage = "";
 
@@ -1318,8 +1327,9 @@ export default function ManagerPage() {
         : ` Invoice was marked paid, but the paid email failed: ${emailResult.error}`;
     }
 
-    setMessage(`Assignment updated.${paidEmailMessage}`);
-    await loadAll();
+    if (!options?.silent) {
+      setMessage(`Assignment updated.${paidEmailMessage}`);
+    }
   }
 
   async function saveMileageTrip(
@@ -1339,23 +1349,31 @@ export default function ManagerPage() {
     const existingTrip = row.mileageTrips[0];
 
     if (existingTrip) {
+      const updates = {
+        status: "approved",
+        approved_miles: miles,
+        mileage_total: total,
+        irs_rate: rate,
+        notes: notesValue.trim() || null,
+      };
+
       const { error } = await supabase
         .from("mileage_trips")
-        .update({
-          status: "approved",
-          approved_miles: miles,
-          mileage_total: total,
-          irs_rate: rate,
-          notes: notesValue.trim() || null,
-        })
+        .update(updates)
         .eq("id", existingTrip.id);
 
       if (error) {
         setMessage(error.message);
-        return;
+        throw error;
       }
+
+      setMileageTrips((current) =>
+        current.map((trip) =>
+          trip.id === existingTrip.id ? { ...trip, ...updates } : trip,
+        ),
+      );
     } else {
-      const { error } = await supabase.from("mileage_trips").insert({
+      const newTrip = {
         assignment_id: row.id,
         contractor_id: row.contractor_id,
         event_id: row.event_id,
@@ -1364,16 +1382,25 @@ export default function ManagerPage() {
         mileage_total: total,
         irs_rate: rate,
         notes: notesValue.trim() || null,
-      });
+      };
+
+      const { data, error } = await supabase
+        .from("mileage_trips")
+        .insert(newTrip)
+        .select("*")
+        .single();
 
       if (error) {
         setMessage(error.message);
-        return;
+        throw error;
+      }
+
+      if (data) {
+        setMileageTrips((current) => [data as MileageTrip, ...current]);
       }
     }
 
     setMessage("Mileage updated.");
-    await loadAll();
   }
 
   async function saveTimeCorrection(
@@ -5539,7 +5566,8 @@ function ManagerAssignmentCard({
   onUpdateAssignment: (
     row: AssignmentRow,
     updates: Partial<Assignment>,
-  ) => void;
+    options?: { silent?: boolean },
+  ) => void | Promise<void>;
   onDeleteAssignment: (id: number) => void;
   onCancelAndNotifyAssignment: (row: AssignmentRow) => void;
   onSendAssignmentReminder: (row: AssignmentRow) => void;
@@ -5594,6 +5622,137 @@ function ManagerAssignmentCard({
   const [showSetupSection, setShowSetupSection] = useState(false);
   const [showTimeSection, setShowTimeSection] = useState(false);
   const [showReviewSection, setShowReviewSection] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<
+    "idle" | "pending" | "saving" | "saved" | "error"
+  >("idle");
+
+  const lastSavedAssignmentDraft = useRef(
+    JSON.stringify({
+      assignment_display_title: row.assignment_display_title || null,
+      position: row.position || null,
+      rate: Number(row.rate || 0),
+      rate_type: row.rate_type || "day",
+      manager_approved_hours:
+        row.manager_approved_hours !== null &&
+        row.manager_approved_hours !== undefined
+          ? Number(row.manager_approved_hours)
+          : null,
+      manager_notes: row.manager_notes || null,
+    }),
+  );
+
+  const lastSavedMileageDraft = useRef(
+    JSON.stringify({
+      miles: row.mileageMiles ? Number(row.mileageMiles.toFixed(2)) : 0,
+      notes: row.mileageTrips[0]?.notes || null,
+    }),
+  );
+
+  useEffect(() => {
+    const cleanRate = Number(editableRate);
+    const cleanHours =
+      approvedHours.trim() === "" ? null : Number(approvedHours);
+
+    if (
+      editableRate.trim() === "" ||
+      Number.isNaN(cleanRate) ||
+      cleanRate < 0 ||
+      (cleanHours !== null && (Number.isNaN(cleanHours) || cleanHours < 0))
+    ) {
+      return;
+    }
+
+    const payload: Partial<Assignment> = {
+      assignment_display_title:
+        !row.assignment_display_title && displayTitle === defaultDisplayTitle
+          ? null
+          : displayTitle.trim() || null,
+      position: positionText.trim() || null,
+      rate: cleanRate,
+      rate_type: editableRateType || "day",
+      manager_approved_hours: cleanHours,
+      manager_notes: notes.trim() || null,
+    };
+
+    const serialized = JSON.stringify(payload);
+
+    if (serialized === lastSavedAssignmentDraft.current) {
+      return;
+    }
+
+    setAutoSaveStatus("pending");
+
+    const timer = window.setTimeout(async () => {
+      setAutoSaveStatus("saving");
+
+      try {
+        await onUpdateAssignment(row, payload, { silent: true });
+        lastSavedAssignmentDraft.current = serialized;
+        setAutoSaveStatus("saved");
+
+        window.setTimeout(() => {
+          setAutoSaveStatus((current) =>
+            current === "saved" ? "idle" : current,
+          );
+        }, 1800);
+      } catch {
+        setAutoSaveStatus("error");
+      }
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    approvedHours,
+    displayTitle,
+    editableRate,
+    editableRateType,
+    notes,
+    positionText,
+  ]);
+
+  useEffect(() => {
+    const miles = Number(editableMileageMiles || 0);
+
+    if (Number.isNaN(miles) || miles < 0) {
+      return;
+    }
+
+    const payload = {
+      miles: Number(miles.toFixed(2)),
+      notes: editableMileageNotes.trim() || null,
+    };
+    const serialized = JSON.stringify(payload);
+
+    if (serialized === lastSavedMileageDraft.current) {
+      return;
+    }
+
+    setAutoSaveStatus("pending");
+
+    const timer = window.setTimeout(async () => {
+      setAutoSaveStatus("saving");
+
+      try {
+        await onSaveMileageTrip(
+          row,
+          String(payload.miles),
+          payload.notes || "",
+        );
+        lastSavedMileageDraft.current = serialized;
+        setAutoSaveStatus("saved");
+
+        window.setTimeout(() => {
+          setAutoSaveStatus((current) =>
+            current === "saved" ? "idle" : current,
+          );
+        }, 1800);
+      } catch {
+        setAutoSaveStatus("error");
+      }
+    }, 900);
+
+    return () => window.clearTimeout(timer);
+  }, [editableMileageMiles, editableMileageNotes]);
 
   function saveBulkStatusUpdate() {
     const cleanHours =
@@ -5706,12 +5865,34 @@ function ManagerAssignmentCard({
             {dateLabel(row.work_date)} · Call {timeLabel(row.call_time)} · Clock{" "}
             {timeLabel(row.clock_in)} - {timeLabel(row.clock_out)}
           </div>
-          {row.manual_time_correction ? (
-            <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
-              <AlertCircle className="h-3.5 w-3.5" />
-              Manual time correction saved
-            </div>
-          ) : null}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {row.manual_time_correction ? (
+              <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
+                <AlertCircle className="h-3.5 w-3.5" />
+                Manual time correction saved
+              </div>
+            ) : null}
+
+            {autoSaveStatus !== "idle" ? (
+              <div
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
+                  autoSaveStatus === "error"
+                    ? "border-red-400/20 bg-red-400/10 text-red-200"
+                    : autoSaveStatus === "saved"
+                      ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
+                      : "border-blue-400/20 bg-blue-400/10 text-blue-200"
+                }`}
+              >
+                {autoSaveStatus === "pending"
+                  ? "Autosave queued..."
+                  : autoSaveStatus === "saving"
+                    ? "Saving..."
+                    : autoSaveStatus === "saved"
+                      ? "Saved ✓"
+                      : "Autosave failed"}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="text-left md:text-right">
@@ -5748,7 +5929,7 @@ function ManagerAssignmentCard({
               Header / Position / Pay Rate
             </div>
             <div className="text-xs text-zinc-500">
-              {positionText || "Assignment"} · {money(Number(editableRate || 0))} / {editableRateType || "day"}
+              Auto-saves after you stop editing · {positionText || "Assignment"} · {money(Number(editableRate || 0))} / {editableRateType || "day"}
             </div>
           </div>
           <ChevronDown
@@ -5773,7 +5954,7 @@ function ManagerAssignmentCard({
                 className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
               >
                 <Save className="h-4 w-4" />
-                Save Header
+                Save Now
               </button>
             </div>
 
@@ -5792,7 +5973,7 @@ function ManagerAssignmentCard({
                 className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
               >
                 <Save className="h-4 w-4" />
-                Save Position
+                Save Now
               </button>
             </div>
 
@@ -5846,7 +6027,7 @@ function ManagerAssignmentCard({
                   className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200"
                 >
                   <Save className="h-4 w-4" />
-                  Save Pay Rate
+                  Save Now
                 </button>
               </div>
 
@@ -5929,7 +6110,7 @@ function ManagerAssignmentCard({
                 className="mt-6 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200"
               >
                 <Save className="h-4 w-4" />
-                Save Mileage
+                Save Now
               </button>
             </div>
 
@@ -6032,7 +6213,7 @@ function ManagerAssignmentCard({
               Manager Review / Actions
             </div>
             <div className="text-xs text-zinc-500">
-              Approved hrs {approvedHours || row.billedHours.toFixed(2)} · {bulkApproveHours ? "Hours Approved" : "Hours Pending"} · {bulkApproveInvoice ? "Invoice Approved" : "Invoice Pending"} · {bulkMarkPaid ? "Paid" : "Unpaid"}
+              Hours and notes auto-save · Approved hrs {approvedHours || row.billedHours.toFixed(2)} · {bulkApproveHours ? "Hours Approved" : "Hours Pending"} · {bulkApproveInvoice ? "Invoice Approved" : "Invoice Pending"} · {bulkMarkPaid ? "Paid" : "Unpaid"}
             </div>
           </div>
           <ChevronDown
@@ -6086,7 +6267,7 @@ function ManagerAssignmentCard({
                 className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-white"
               >
                 <Save className="h-4 w-4" />
-                Save Hours / Notes
+                Save Now
               </button>
 
               <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-2">
